@@ -1,6 +1,8 @@
 # realtime-editor.js
 A realtime editor.js collaborative interface based on OT (instead of CRDTs). The goal for this repo is simplicity, so people can understand how easy collaborative realtime editing can be using OT (Operational Transforms).
 
+![image](https://github.com/user-attachments/assets/e94da0ac-04df-4f64-80d6-72c5494c9813)
+
 I didn't do much more than setup the basics using editor.js.
 
 If you add editor.js blocks besides headings and text, it will just show that users cursor on that block.
