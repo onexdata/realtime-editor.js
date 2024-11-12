@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaborative Editor.js</title>
+    
+    <style>
+        /* Editor container */
+        #editorjs {
+            position: relative;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Remote cursor styles */
+        .remote-cursor {
+            position: absolute;
+            pointer-events: none;
+            z-index: 1000;
+            transition: all 0.1s ease;
+        }
+
+        .cursor-flag {
+            position: absolute;
+            top: -20px;
+            left: 0;
+            white-space: nowrap;
+            transform: translateX(-50%);
+            opacity: 0.9;
+        }
+
+        .cursor-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            transform: translateX(-50%);
+        }
+
+        /* Editor.js default styles improvement */
+        .codex-editor {
+            position: relative;
+        }
+
+        .ce-block {
+            position: relative;
+        }
+    </style>
+
+    <!-- Editor.js and tools -->
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/paragraph@latest"></script>
+</head>
+<body>
+    <div id="editorjs"></div>
+    
+    <!-- Bundle must be loaded after Editor.js and its tools -->
+    <script src="/dist/bundle.js"></script>
+</body>
+</html>
