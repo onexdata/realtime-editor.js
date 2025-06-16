@@ -19,15 +19,12 @@ The code is pretty small. You could use any LLM to paste this code and have it a
 npm i
 ```
 
-# Build
-```
-npm run build
-```
-
 # Start
 ```
 npm start
 ```
+
+That's it! No build step required - just refresh your browser to see changes.
 
 ## ShareDB
 This uses [ShareDb](https://github.com/share/sharedb) for Operational Transforms. You could use ShareDB for anything that is JSON based.
@@ -58,4 +55,3 @@ Operational Transforms (OT) are simpler and much faster than CRDTs, and take adv
 I implemented this with ShareDB which handles all complexities of OT.
 
 Google Docs and most apps that don't need more than a few dozen collaborators seem to all select OT over CRDT.
-

@@ -1,31 +1,15 @@
 const express = require('express');
 const WebSocket = require('ws');
 const http = require('http');
-const ShareDB = require('sharedb');
-const WebSocketJSONStream = require('websocket-json-stream');
 const path = require('path');
 const url = require('url');
 
-// Configure ShareDB with in-memory database
-const backend = new ShareDB();
-
-// Create new document
-const connection = backend.connect();
-const doc = connection.get('documents', 'example-doc');
-
-doc.fetch(function(err) {
-  if (err) throw err;
-  if (doc.type === null) {
-    doc.create({ 
-      time: Date.now(),
-      blocks: [],
-      version: "2.28.2"
-    }, function(err) {
-      if (err) throw err;
-      console.log('Created document');
-    });
-  }
-});
+// Simple in-memory document storage
+let documentData = {
+    time: Date.now(),
+    blocks: [],
+    version: "2.28.2"
+};
 
 // Set up Express
 const app = express();
@@ -35,10 +19,10 @@ app.use(express.json());
 // Create HTTP server
 const server = http.createServer(app);
 
-// Create separate WebSocket servers for ShareDB and cursors
-const shareDBServer = new WebSocket.Server({ 
+// Create separate WebSocket servers for document sync and cursors
+const documentServer = new WebSocket.Server({ 
     noServer: true,
-    path: '/sharedb'
+    path: '/document'
 });
 
 const cursorServer = new WebSocket.Server({ 
@@ -46,10 +30,45 @@ const cursorServer = new WebSocket.Server({
     path: '/cursors'
 });
 
-// Handle ShareDB connections
-shareDBServer.on('connection', function(ws) {
-    const stream = new WebSocketJSONStream(ws);
-    backend.listen(stream);
+// Handle document synchronization connections
+documentServer.on('connection', function(ws) {
+    console.log('Document client connected');
+    
+    ws.on('message', function(data) {
+        try {
+            const message = JSON.parse(data);
+            
+            if (message.type === 'get_document') {
+                // Send current document data
+                ws.send(JSON.stringify({
+                    type: 'document_data',
+                    data: documentData
+                }));
+                
+            } else if (message.type === 'document_change') {
+                // Update document and broadcast to all other clients
+                documentData = message.data;
+                console.log('Document updated by client:', message.clientId);
+                
+                // Broadcast to all other document clients
+                documentServer.clients.forEach(function(client) {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({
+                            type: 'document_change',
+                            data: documentData,
+                            clientId: message.clientId
+                        }));
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Error processing document message:', err);
+        }
+    });
+    
+    ws.on('close', function() {
+        console.log('Document client disconnected');
+    });
 });
 
 // Store active cursor connections
@@ -57,12 +76,14 @@ const cursorConnections = new Map();
 
 // Handle cursor update connections
 cursorServer.on('connection', function(ws) {
+    console.log('Cursor client connected');
+    
     ws.on('message', function(data) {
         try {
             const message = JSON.parse(data);
             
             if (message.type === 'cursor') {
-                if (message.type === 'remove') {
+                if (message.action === 'remove') {
                     cursorConnections.delete(message.clientId);
                 } else {
                     cursorConnections.set(message.clientId, {
@@ -85,6 +106,7 @@ cursorServer.on('connection', function(ws) {
     });
     
     ws.on('close', function() {
+        console.log('Cursor client disconnected');
         // Find and remove the disconnected client's cursor
         cursorConnections.forEach((value, key) => {
             if (value.ws === ws) {
@@ -95,7 +117,7 @@ cursorServer.on('connection', function(ws) {
                         client.send(JSON.stringify({
                             type: 'cursor',
                             clientId: key,
-                            type: 'remove'
+                            action: 'remove'
                         }));
                     }
                 });
@@ -108,9 +130,9 @@ cursorServer.on('connection', function(ws) {
 server.on('upgrade', function(request, socket, head) {
     const pathname = url.parse(request.url).pathname;
     
-    if (pathname === '/sharedb') {
-        shareDBServer.handleUpgrade(request, socket, head, function(ws) {
-            shareDBServer.emit('connection', ws, request);
+    if (pathname === '/document') {
+        documentServer.handleUpgrade(request, socket, head, function(ws) {
+            documentServer.emit('connection', ws, request);
         });
     } else if (pathname === '/cursors') {
         cursorServer.handleUpgrade(request, socket, head, function(ws) {
@@ -125,4 +147,5 @@ server.on('upgrade', function(request, socket, head) {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`Open http://localhost:${PORT} to start collaborating!`);
 });

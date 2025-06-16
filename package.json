@@ -3,11 +3,10 @@
     "version": "1.0.0",
     "description": "Collaborative Editor.js implementation using ShareDB",
     "main": "server.js",
-    "scripts": {
-      "start": "node server.js",
-      "dev": "nodemon server.js",
-      "build": "webpack --mode production"
-    },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
     "dependencies": {
       "@editorjs/editorjs": "^2.28.2",
       "@editorjs/header": "^2.8.1",

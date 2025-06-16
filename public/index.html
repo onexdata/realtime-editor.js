@@ -6,12 +6,23 @@
     <title>Collaborative Editor.js</title>
     
     <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8f9fa;
+            min-height: 100vh;
+        }
+
         /* Editor container */
         #editorjs {
             position: relative;
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 40px 20px;
+            background: white;
+            min-height: calc(100vh - 80px);
+            box-shadow: 0 0 20px rgba(0,0,0,0.05);
         }
 
         /* Remote cursor styles */
@@ -19,26 +30,38 @@
             position: absolute;
             pointer-events: none;
             z-index: 1000;
-            transition: all 0.1s ease;
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .cursor-flag {
             position: absolute;
-            top: -20px;
-            left: 0;
             white-space: nowrap;
-            transform: translateX(-50%);
-            opacity: 0.9;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            user-select: none;
         }
 
         .cursor-line {
             position: absolute;
-            bottom: 0;
-            left: 0;
-            transform: translateX(-50%);
+            animation: blink 1s infinite;
         }
 
-        /* Editor.js default styles improvement */
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+
+        /* User indicator styles */
+        .user-indicator {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            user-select: none;
+        }
+
+        .user-indicator button:hover {
+            opacity: 1 !important;
+            background-color: rgba(0,0,0,0.05);
+        }
+
+        /* Editor.js improvements */
         .codex-editor {
             position: relative;
         }
@@ -46,17 +69,121 @@
         .ce-block {
             position: relative;
         }
+
+        .ce-block__content {
+            position: relative;
+        }
+
+        /* Improve Editor.js toolbar positioning */
+        .ce-toolbar {
+            z-index: 999;
+        }
+
+        .ce-inline-toolbar {
+            z-index: 999;
+        }
+
+        /* Loading state */
+        .editor-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: #666;
+            font-size: 16px;
+        }
+
+        .editor-loading::after {
+            content: '';
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ddd;
+            border-top: 2px solid #666;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            #editorjs {
+                padding: 20px 15px;
+                margin: 0;
+                min-height: 100vh;
+                box-shadow: none;
+            }
+
+            .user-indicator {
+                position: fixed !important;
+                top: 10px !important;
+                right: 10px !important;
+                font-size: 12px !important;
+                padding: 8px 12px !important;
+            }
+        }
+
+        /* Connection status indicator */
+        .connection-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            z-index: 1002;
+            transition: all 0.3s ease;
+        }
+
+        .connection-status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .connection-status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .connection-status.connecting {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        /* Smooth transitions for better UX */
+        * {
+            box-sizing: border-box;
+        }
+
+        /* Focus improvements */
+        .ce-block--focused {
+            background-color: rgba(46, 170, 220, 0.02);
+            border-radius: 4px;
+        }
     </style>
 
-    <!-- Editor.js -->
+    <!-- Editor.js and tools -->
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@2.28.2"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@2.8.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@1.9.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/paragraph@2.11.3"></script>
 </head>
 <body>
-    <div id="editorjs"></div>
+    <div id="editorjs">
+        <div class="editor-loading">
+            Loading collaborative editor...
+        </div>
+    </div>
     
-    <!-- Bundle must be loaded after Editor.js and its tools -->
-    <script src="/dist/bundle.js"></script>
+    <!-- Load our client script -->
+    <script src="client.js"></script>
 </body>
 </html>
