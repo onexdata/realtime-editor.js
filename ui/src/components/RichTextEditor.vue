@@ -60,7 +60,9 @@ const currentUser = ref(generateRandomUser())
 const editorRef = ref(null)
 const activeUsers = ref([])
 const typingUsers = ref([])
+const activeBlocks = ref({}) // Track which users are editing which blocks
 const editor = ref(null)
+const currentBlockId = ref(null)
 
 // Debounce timer for typing indicators
 let typingTimeout = null
@@ -87,11 +89,16 @@ onMounted(async () => {
   awareness.on('change', ({ added, updated, removed }) => {
     updateActiveUsers()
     updateTypingUsers()
+    updateActiveBlocks()
   })
   
   // Initial updates
   updateActiveUsers()
   updateEditorFromYjs()
+  
+  // Set up block tracking after editor is ready
+  await nextTick()
+  setupBlockTracking()
 })
 
 async function initializeEditor() {
@@ -194,6 +201,74 @@ function updateTypingUsers() {
     }
   })
   typingUsers.value = typing
+}
+
+function updateActiveBlocks() {
+  const blocks = {}
+  awareness.getStates().forEach((state, clientId) => {
+    if (state.user && state.activeBlockId && clientId !== awareness.clientID) {
+      blocks[state.activeBlockId] = {
+        user: state.user,
+        clientId
+      }
+    }
+  })
+  activeBlocks.value = blocks
+  updateBlockIndicators()
+}
+
+function setupBlockTracking() {
+  if (!editorRef.value) return
+  
+  // Add event listener to the editor container to detect block focus
+  const editorContainer = editorRef.value
+  
+  editorContainer.addEventListener('click', handleBlockFocus)
+  editorContainer.addEventListener('keyup', handleBlockFocus)
+  editorContainer.addEventListener('focus', handleBlockFocus, true)
+}
+
+function handleBlockFocus(event) {
+  // Find the closest block element
+  const blockElement = event.target.closest('.ce-block')
+  if (!blockElement) return
+  
+  // Get the block index as an identifier
+  const blocks = editorRef.value.querySelectorAll('.ce-block')
+  const blockIndex = Array.from(blocks).indexOf(blockElement)
+  
+  if (blockIndex !== -1 && blockIndex !== currentBlockId.value) {
+    currentBlockId.value = blockIndex
+    
+    // Update awareness with the active block
+    awareness.setLocalStateField('activeBlockId', blockIndex)
+  }
+}
+
+function updateBlockIndicators() {
+  if (!editorRef.value) return
+  
+  // Clear existing indicators
+  const existingIndicators = editorRef.value.querySelectorAll('.block-user-indicator')
+  existingIndicators.forEach(indicator => indicator.remove())
+  
+  // Add new indicators
+  Object.entries(activeBlocks.value).forEach(([blockId, blockData]) => {
+    const blockIndex = parseInt(blockId)
+    const blocks = editorRef.value.querySelectorAll('.ce-block')
+    const blockElement = blocks[blockIndex]
+    
+    if (blockElement && !blockElement.querySelector('.block-user-indicator')) {
+      const indicator = document.createElement('div')
+      indicator.className = 'block-user-indicator'
+      indicator.style.backgroundColor = blockData.user.color
+      indicator.title = `${blockData.user.name} is editing this block`
+      
+      // Position the indicator
+      blockElement.style.position = 'relative'
+      blockElement.appendChild(indicator)
+    }
+  })
 }
 
 function debounce(func, wait) {
@@ -316,5 +391,37 @@ onBeforeUnmount(() => {
 
 :deep(.ce-list) {
   padding-left: 1rem;
+}
+
+/* Block user indicators */
+:deep(.block-user-indicator) {
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  z-index: 10;
+  animation: blockPulse 2s infinite;
+}
+
+@keyframes blockPulse {
+  0%, 100% { 
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  50% { 
+    opacity: 0.7;
+    transform: translateY(-50%) scale(1.1);
+  }
+}
+
+/* Ensure blocks have space for indicators */
+:deep(.ce-block) {
+  position: relative;
+  margin-left: 30px;
 }
 </style>
