@@ -206,11 +206,15 @@ function updateTypingUsers() {
 function updateActiveBlocks() {
   const blocks = {}
   awareness.getStates().forEach((state, clientId) => {
-    if (state.user && state.activeBlockId && clientId !== awareness.clientID) {
-      blocks[state.activeBlockId] = {
+    if (state.user && state.activeBlockId !== undefined && clientId !== awareness.clientID) {
+      const blockId = state.activeBlockId
+      if (!blocks[blockId]) {
+        blocks[blockId] = []
+      }
+      blocks[blockId].push({
         user: state.user,
         clientId
-      }
+      })
     }
   })
   activeBlocks.value = blocks
@@ -253,16 +257,40 @@ function updateBlockIndicators() {
   existingIndicators.forEach(indicator => indicator.remove())
   
   // Add new indicators
-  Object.entries(activeBlocks.value).forEach(([blockId, blockData]) => {
+  Object.entries(activeBlocks.value).forEach(([blockId, usersArray]) => {
     const blockIndex = parseInt(blockId)
     const blocks = editorRef.value.querySelectorAll('.ce-block')
     const blockElement = blocks[blockIndex]
     
-    if (blockElement && !blockElement.querySelector('.block-user-indicator')) {
+    if (blockElement && usersArray.length > 0) {
       const indicator = document.createElement('div')
       indicator.className = 'block-user-indicator'
-      indicator.style.backgroundColor = blockData.user.color
-      indicator.title = `${blockData.user.name} is editing this block`
+      
+      // Handle multiple users
+      if (usersArray.length === 1) {
+        // Single user - use their color
+        indicator.style.backgroundColor = usersArray[0].user.color
+        indicator.title = `${usersArray[0].user.name} is editing this block`
+      } else {
+        // Multiple users - create gradient and list all names
+        const colors = usersArray.map(userData => userData.user.color)
+        const names = usersArray.map(userData => userData.user.name)
+        
+        if (colors.length === 2) {
+          indicator.style.background = `linear-gradient(45deg, ${colors[0]} 50%, ${colors[1]} 50%)`
+        } else {
+          // For 3+ users, create a multi-stop gradient
+          const stops = colors.map((color, index) => {
+            const percentage = (index / colors.length) * 100
+            const nextPercentage = ((index + 1) / colors.length) * 100
+            return `${color} ${percentage}%, ${color} ${nextPercentage}%`
+          }).join(', ')
+          indicator.style.background = `linear-gradient(45deg, ${stops})`
+        }
+        
+        indicator.title = `Multiple users editing: ${names.join(', ')}`
+        indicator.classList.add('multiple-users')
+      }
       
       // Position the indicator
       blockElement.style.position = 'relative'
@@ -406,6 +434,15 @@ onBeforeUnmount(() => {
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
   z-index: 10;
   animation: blockPulse 2s infinite;
+  cursor: help;
+}
+
+/* Multiple users indicator styling */
+:deep(.block-user-indicator.multiple-users) {
+  border: 3px solid white;
+  width: 14px;
+  height: 14px;
+  animation: multiUserPulse 1.5s infinite;
 }
 
 @keyframes blockPulse {
@@ -416,6 +453,17 @@ onBeforeUnmount(() => {
   50% { 
     opacity: 0.7;
     transform: translateY(-50%) scale(1.1);
+  }
+}
+
+@keyframes multiUserPulse {
+  0%, 100% { 
+    opacity: 1;
+    transform: translateY(-50%) scale(1) rotate(0deg);
+  }
+  50% { 
+    opacity: 0.8;
+    transform: translateY(-50%) scale(1.15) rotate(180deg);
   }
 }
 
