@@ -291,7 +291,7 @@ class CursorManager {
     }
 }
 
-// Simple Document Synchronization without ShareDB
+// Improved Document Synchronization with Block-level Changes
 class DocumentSync {
     constructor(documentSocket, editor) {
         this.documentSocket = documentSocket;
@@ -300,6 +300,50 @@ class DocumentSync {
         this.lastKnownData = null;
         this.changeTimeout = null;
         this.isSubmittingChange = false;
+        this.blockHashes = new Map(); // Track individual block hashes
+    }
+
+    // Generate a simple hash for a block to detect changes
+    hashBlock(block) {
+        return JSON.stringify({
+            type: block.type,
+            data: block.data
+        });
+    }
+
+    // Find which blocks have changed
+    findChangedBlocks(oldData, newData) {
+        const changes = [];
+        const oldBlocks = oldData?.blocks || [];
+        const newBlocks = newData?.blocks || [];
+        
+        // Check for modified or new blocks
+        newBlocks.forEach((newBlock, index) => {
+            const oldBlock = oldBlocks[index];
+            const newHash = this.hashBlock(newBlock);
+            
+            if (!oldBlock || this.hashBlock(oldBlock) !== newHash) {
+                changes.push({
+                    type: 'block_change',
+                    index: index,
+                    block: newBlock,
+                    action: oldBlock ? 'update' : 'insert'
+                });
+            }
+        });
+        
+        // Check for deleted blocks
+        if (oldBlocks.length > newBlocks.length) {
+            for (let i = newBlocks.length; i < oldBlocks.length; i++) {
+                changes.push({
+                    type: 'block_change',
+                    index: i,
+                    action: 'delete'
+                });
+            }
+        }
+        
+        return changes;
     }
 
     async handleLocalChange() {
@@ -316,11 +360,27 @@ class DocumentSync {
                     this.isSubmittingChange = true;
                     
                     if (this.documentSocket && this.documentSocket.readyState === WebSocket.OPEN) {
-                        this.documentSocket.send(JSON.stringify({
-                            type: 'document_change',
-                            data: data,
-                            clientId: this.userManager?.clientId
-                        }));
+                        // Find specific block changes instead of sending entire document
+                        const changes = this.findChangedBlocks(this.lastKnownData, data);
+                        
+                        if (changes.length > 0) {
+                            // Send individual block changes
+                            changes.forEach(change => {
+                                this.documentSocket.send(JSON.stringify({
+                                    type: 'block_change',
+                                    change: change,
+                                    timestamp: Date.now(),
+                                    clientId: this.userManager?.clientId
+                                }));
+                            });
+                        } else {
+                            // Fallback: send full document if we can't determine changes
+                            this.documentSocket.send(JSON.stringify({
+                                type: 'document_change',
+                                data: data,
+                                clientId: this.userManager?.clientId
+                            }));
+                        }
                     }
                     
                     this.lastKnownData = JSON.parse(JSON.stringify(data));
@@ -398,6 +458,127 @@ class DocumentSync {
             console.error('Error applying remote change:', err);
         } finally {
             this.isApplyingRemoteChange = false;
+        }
+    }
+
+    async handleRemoteBlockChange(change) {
+        if (this.isApplyingRemoteChange) return;
+        
+        this.isApplyingRemoteChange = true;
+        
+        try {
+            console.log('Remote block change received:', change.action, 'at index', change.index);
+            
+            // Update our local document data to stay in sync
+            if (!this.lastKnownData) {
+                this.lastKnownData = { blocks: [] };
+            }
+            
+            if (!this.lastKnownData.blocks) {
+                this.lastKnownData.blocks = [];
+            }
+            
+            // Apply the change to our local data
+            switch (change.action) {
+                case 'insert':
+                    this.lastKnownData.blocks.splice(change.index, 0, change.block);
+                    break;
+                    
+                case 'update':
+                    if (change.index < this.lastKnownData.blocks.length) {
+                        this.lastKnownData.blocks[change.index] = change.block;
+                    }
+                    break;
+                    
+                case 'delete':
+                    if (change.index < this.lastKnownData.blocks.length) {
+                        this.lastKnownData.blocks.splice(change.index, 1);
+                    }
+                    break;
+            }
+            
+            // Apply the change to the actual editor
+            await this.applyBlockChangeToEditor(change);
+            
+            console.log('Block change applied. Current blocks:', this.lastKnownData.blocks.length);
+            
+        } catch (err) {
+            console.error('Error applying remote block change:', err);
+        } finally {
+            this.isApplyingRemoteChange = false;
+        }
+    }
+
+    async applyBlockChangeToEditor(change) {
+        if (!this.editor || !this.editor.isReady) return;
+        
+        try {
+            // Store current selection to restore later
+            const selection = window.getSelection();
+            let savedBlockIndex = -1;
+            let savedOffset = 0;
+            
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                const node = range.startContainer;
+                const blockElement = this.findBlockElement(node.nodeType === Node.TEXT_NODE ? node.parentElement : node);
+                
+                if (blockElement) {
+                    const editorElement = document.getElementById('editorjs');
+                    const blocks = Array.from(editorElement.querySelectorAll('.ce-block'));
+                    savedBlockIndex = blocks.indexOf(blockElement);
+                    savedOffset = range.startOffset;
+                }
+            }
+            
+            // For now, we'll re-render the entire document since Editor.js doesn't have 
+            // easy individual block manipulation APIs
+            // This is not ideal for performance but ensures consistency
+            await this.editor.clear();
+            await this.editor.render(this.lastKnownData);
+            
+            // Restore selection if possible
+            if (savedBlockIndex >= 0) {
+                setTimeout(() => {
+                    try {
+                        const editorElement = document.getElementById('editorjs');
+                        const blocks = editorElement.querySelectorAll('.ce-block');
+                        
+                        // Adjust block index if blocks were inserted/deleted before current position
+                        let targetIndex = savedBlockIndex;
+                        if (change.action === 'insert' && change.index <= savedBlockIndex) {
+                            targetIndex++;
+                        } else if (change.action === 'delete' && change.index < savedBlockIndex) {
+                            targetIndex--;
+                        }
+                        
+                        const targetBlock = blocks[Math.max(0, Math.min(targetIndex, blocks.length - 1))];
+                        
+                        if (targetBlock) {
+                            const contentElement = targetBlock.querySelector('[contenteditable="true"]');
+                            if (contentElement) {
+                                const range = document.createRange();
+                                const textNode = this.findTextNode(contentElement);
+                                
+                                if (textNode) {
+                                    const offset = Math.min(savedOffset, textNode.textContent.length);
+                                    range.setStart(textNode, offset);
+                                    range.setEnd(textNode, offset);
+                                    
+                                    const selection = window.getSelection();
+                                    selection.removeAllRanges();
+                                    selection.addRange(range);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Selection restoration failed, ignore
+                    }
+                }, 100);
+            }
+            
+        } catch (err) {
+            console.error('Error applying block change to editor:', err);
         }
     }
 
@@ -548,6 +729,8 @@ class CollaborativeEditor {
                     this.handleInitialDocument(message.data);
                 } else if (message.type === 'document_change' && message.clientId !== this.userManager.clientId) {
                     this.documentSync.handleRemoteChange(message.data);
+                } else if (message.type === 'block_change' && message.clientId !== this.userManager.clientId) {
+                    this.documentSync.handleRemoteBlockChange(message.change);
                 }
             } catch (err) {
                 console.error('Error processing document message:', err);
@@ -580,8 +763,31 @@ class CollaborativeEditor {
 
     async handleInitialDocument(data) {
         this.initialDocumentData = data;
-        // Store the data to be used when editor is ready
-        // Editor.js doesn't have a render method, it uses data in constructor
+        
+        // If editor is already ready, render the data immediately
+        if (this.editor && this.editor.isReady) {
+            await this.renderDocumentData(data);
+        }
+        // Otherwise, the data will be used when editor becomes ready
+    }
+
+    async renderDocumentData(data) {
+        if (!this.editor || !data) return;
+        
+        try {
+            // Clear the editor and render new data
+            await this.editor.clear();
+            await this.editor.render(data);
+            
+            // Update our sync data
+            if (this.documentSync) {
+                this.documentSync.lastKnownData = JSON.parse(JSON.stringify(data));
+            }
+            
+            console.log('Document rendered with', data.blocks?.length || 0, 'blocks');
+        } catch (err) {
+            console.error('Error rendering document data:', err);
+        }
     }
 
     initializeEditor() {
@@ -594,7 +800,7 @@ class CollaborativeEditor {
                 // Update cursor position after local changes
                 setTimeout(() => this.cursorManager.updateLocalCursor(), 0);
             },
-            onReady: () => {
+            onReady: async () => {
                 // Remove loading spinner
                 const loadingElement = document.querySelector('.editor-loading');
                 if (loadingElement) {
@@ -605,8 +811,10 @@ class CollaborativeEditor {
                 this.documentSync = new DocumentSync(this.documentSocket, this.editor);
                 this.documentSync.userManager = this.userManager;
                 
-                // Initial document data will be handled through document sync
-                // Editor.js doesn't have a render method
+                // If we have initial document data, render it now
+                if (this.initialDocumentData) {
+                    await this.renderDocumentData(this.initialDocumentData);
+                }
                 
                 this.setupEventListeners();
                 this.addUserInterface();

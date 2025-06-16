@@ -34,7 +34,7 @@ const cursorServer = new WebSocket.Server({
 documentServer.on('connection', function(ws) {
     console.log('Document client connected');
     
-    ws.on('message', function(data) {
+        ws.on('message', function(data) {
         try {
             const message = JSON.parse(data);
             
@@ -46,9 +46,9 @@ documentServer.on('connection', function(ws) {
                 }));
                 
             } else if (message.type === 'document_change') {
-                // Update document and broadcast to all other clients
+                // Update document and broadcast to all other clients (fallback for full document updates)
                 documentData = message.data;
-                console.log('Document updated by client:', message.clientId);
+                console.log('Full document updated by client:', message.clientId);
                 
                 // Broadcast to all other document clients
                 documentServer.clients.forEach(function(client) {
@@ -56,6 +56,52 @@ documentServer.on('connection', function(ws) {
                         client.send(JSON.stringify({
                             type: 'document_change',
                             data: documentData,
+                            clientId: message.clientId
+                        }));
+                    }
+                });
+                
+            } else if (message.type === 'block_change') {
+                // Handle individual block changes
+                const change = message.change;
+                console.log('Block change received:', change.action, 'at index', change.index, 'by client:', message.clientId);
+                
+                // Apply the change to the document
+                if (!documentData.blocks) {
+                    documentData.blocks = [];
+                }
+                
+                switch (change.action) {
+                    case 'insert':
+                        // Insert new block at specified index
+                        documentData.blocks.splice(change.index, 0, change.block);
+                        break;
+                        
+                    case 'update':
+                        // Update existing block at specified index
+                        if (change.index < documentData.blocks.length) {
+                            documentData.blocks[change.index] = change.block;
+                        }
+                        break;
+                        
+                    case 'delete':
+                        // Delete block at specified index
+                        if (change.index < documentData.blocks.length) {
+                            documentData.blocks.splice(change.index, 1);
+                        }
+                        break;
+                }
+                
+                // Update document timestamp
+                documentData.time = message.timestamp || Date.now();
+                
+                // Broadcast the block change to all other document clients
+                documentServer.clients.forEach(function(client) {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({
+                            type: 'block_change',
+                            change: change,
+                            timestamp: message.timestamp,
                             clientId: message.clientId
                         }));
                     }
