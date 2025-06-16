@@ -349,6 +349,12 @@ class DocumentSync {
     async handleLocalChange() {
         if (this.isApplyingRemoteChange || this.isSubmittingChange) return;
         
+        // Don't process changes until lastKnownData is properly initialized
+        if (this.lastKnownData === null) {
+            console.log('Skipping change - editor not fully initialized yet');
+            return;
+        }
+        
         // Reduced debounce for more real-time feel
         clearTimeout(this.changeTimeout);
         this.changeTimeout = setTimeout(async () => {
@@ -373,6 +379,7 @@ class DocumentSync {
                                     clientId: this.userManager?.clientId
                                 }));
                             });
+                            console.log('Sent', changes.length, 'block changes');
                         } else {
                             // Fallback: send full document if we can't determine changes
                             this.documentSocket.send(JSON.stringify({
@@ -380,6 +387,7 @@ class DocumentSync {
                                 data: data,
                                 clientId: this.userManager?.clientId
                             }));
+                            console.log('Sent full document as fallback');
                         }
                     }
                     
@@ -531,50 +539,82 @@ class DocumentSync {
                 }
             }
             
-            // For now, we'll re-render the entire document since Editor.js doesn't have 
-            // easy individual block manipulation APIs
-            // This is not ideal for performance but ensures consistency
-            await this.editor.clear();
-            await this.editor.render(this.lastKnownData);
-            
-            // Restore selection if possible
-            if (savedBlockIndex >= 0) {
-                setTimeout(() => {
-                    try {
-                        const editorElement = document.getElementById('editorjs');
-                        const blocks = editorElement.querySelectorAll('.ce-block');
+            // Try to apply individual block changes using Editor.js API when possible
+            try {
+                switch (change.action) {
+                    case 'insert':
+                        // Use Editor.js blocks API to insert block
+                        await this.editor.blocks.insert(change.block.type, change.block.data, {}, change.index);
+                        console.log('Block inserted at index', change.index);
+                        break;
                         
-                        // Adjust block index if blocks were inserted/deleted before current position
-                        let targetIndex = savedBlockIndex;
-                        if (change.action === 'insert' && change.index <= savedBlockIndex) {
-                            targetIndex++;
-                        } else if (change.action === 'delete' && change.index < savedBlockIndex) {
-                            targetIndex--;
-                        }
-                        
-                        const targetBlock = blocks[Math.max(0, Math.min(targetIndex, blocks.length - 1))];
-                        
-                        if (targetBlock) {
-                            const contentElement = targetBlock.querySelector('[contenteditable="true"]');
-                            if (contentElement) {
-                                const range = document.createRange();
-                                const textNode = this.findTextNode(contentElement);
-                                
-                                if (textNode) {
-                                    const offset = Math.min(savedOffset, textNode.textContent.length);
-                                    range.setStart(textNode, offset);
-                                    range.setEnd(textNode, offset);
-                                    
-                                    const selection = window.getSelection();
-                                    selection.removeAllRanges();
-                                    selection.addRange(range);
-                                }
+                    case 'update':
+                        // Use Editor.js blocks API to update block
+                        if (change.index < await this.editor.blocks.getBlocksCount()) {
+                            const blockToUpdate = await this.editor.blocks.getBlockByIndex(change.index);
+                            if (blockToUpdate) {
+                                await this.editor.blocks.update(blockToUpdate.id, change.block.data);
+                                console.log('Block updated at index', change.index);
                             }
                         }
-                    } catch (e) {
-                        // Selection restoration failed, ignore
-                    }
-                }, 100);
+                        break;
+                        
+                    case 'delete':
+                        // Use Editor.js blocks API to delete block
+                        if (change.index < await this.editor.blocks.getBlocksCount()) {
+                            const blockToDelete = await this.editor.blocks.getBlockByIndex(change.index);
+                            if (blockToDelete) {
+                                await this.editor.blocks.delete(blockToDelete.id);
+                                console.log('Block deleted at index', change.index);
+                            }
+                        }
+                        break;
+                }
+                
+                // Restore selection if possible
+                if (savedBlockIndex >= 0) {
+                    setTimeout(() => {
+                        try {
+                            const editorElement = document.getElementById('editorjs');
+                            const blocks = editorElement.querySelectorAll('.ce-block');
+                            
+                            // Adjust block index if blocks were inserted/deleted before current position
+                            let targetIndex = savedBlockIndex;
+                            if (change.action === 'insert' && change.index <= savedBlockIndex) {
+                                targetIndex++;
+                            } else if (change.action === 'delete' && change.index < savedBlockIndex) {
+                                targetIndex--;
+                            }
+                            
+                            const targetBlock = blocks[Math.max(0, Math.min(targetIndex, blocks.length - 1))];
+                            
+                            if (targetBlock) {
+                                const contentElement = targetBlock.querySelector('[contenteditable="true"]');
+                                if (contentElement) {
+                                    const range = document.createRange();
+                                    const textNode = this.findTextNode(contentElement);
+                                    
+                                    if (textNode) {
+                                        const offset = Math.min(savedOffset, textNode.textContent.length);
+                                        range.setStart(textNode, offset);
+                                        range.setEnd(textNode, offset);
+                                        
+                                        const selection = window.getSelection();
+                                        selection.removeAllRanges();
+                                        selection.addRange(range);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // Selection restoration failed, ignore
+                        }
+                    }, 100);
+                }
+                
+            } catch (apiError) {
+                console.log('Editor.js API method failed:', apiError.message);
+                // For now, just log the error. In a production system, you might want to
+                // implement a more sophisticated fallback or conflict resolution strategy
             }
             
         } catch (err) {
@@ -764,29 +804,74 @@ class CollaborativeEditor {
     async handleInitialDocument(data) {
         this.initialDocumentData = data;
         
-        // If editor is already ready, render the data immediately
+        // If editor is already ready, we need to recreate it with the new data
         if (this.editor && this.editor.isReady) {
-            await this.renderDocumentData(data);
+            await this.recreateEditorWithData(data);
         }
         // Otherwise, the data will be used when editor becomes ready
     }
 
-    async renderDocumentData(data) {
-        if (!this.editor || !data) return;
+    async recreateEditorWithData(data) {
+        if (!data) return;
         
         try {
-            // Clear the editor and render new data
-            await this.editor.clear();
-            await this.editor.render(data);
-            
-            // Update our sync data
-            if (this.documentSync) {
-                this.documentSync.lastKnownData = JSON.parse(JSON.stringify(data));
+            // Destroy the current editor
+            if (this.editor && this.editor.destroy) {
+                await this.editor.destroy();
             }
             
-            console.log('Document rendered with', data.blocks?.length || 0, 'blocks');
+            // Clear the editor container
+            const editorElement = document.getElementById('editorjs');
+            editorElement.innerHTML = '';
+            
+            // Create new editor with the data
+            this.editor = new EditorJS({
+                holder: 'editorjs',
+                data: data,
+                onChange: () => {
+                    if (this.documentSync) {
+                        this.documentSync.handleLocalChange();
+                    }
+                    // Update cursor position after local changes
+                    setTimeout(() => this.cursorManager.updateLocalCursor(), 0);
+                },
+                onReady: () => {
+                    // Update document sync reference to new editor
+                    if (this.documentSync) {
+                        this.documentSync.editor = this.editor;
+                        // Initialize the lastKnownData with the loaded data
+                        this.documentSync.lastKnownData = JSON.parse(JSON.stringify(data));
+                        console.log('Document sync updated with', data.blocks?.length || 0, 'blocks');
+                    }
+                    
+                    this.setupEventListeners();
+                    
+                    // Initial cursor position
+                    setTimeout(() => this.cursorManager.updateLocalCursor(), 100);
+                    
+                    console.log('Document loaded with', data.blocks?.length || 0, 'blocks');
+                },
+                tools: {
+                    header: {
+                        class: Header,
+                        config: {
+                            levels: [2, 3, 4],
+                            defaultLevel: 2
+                        }
+                    },
+                    list: {
+                        class: List,
+                        inlineToolbar: true
+                    },
+                    paragraph: {
+                        class: Paragraph,
+                        inlineToolbar: true
+                    }
+                }
+            });
+            
         } catch (err) {
-            console.error('Error rendering document data:', err);
+            console.error('Error recreating editor with data:', err);
         }
     }
 
@@ -811,9 +896,9 @@ class CollaborativeEditor {
                 this.documentSync = new DocumentSync(this.documentSocket, this.editor);
                 this.documentSync.userManager = this.userManager;
                 
-                // If we have initial document data, render it now
+                // If we have initial document data, recreate editor with it
                 if (this.initialDocumentData) {
-                    await this.renderDocumentData(this.initialDocumentData);
+                    await this.recreateEditorWithData(this.initialDocumentData);
                 }
                 
                 this.setupEventListeners();
