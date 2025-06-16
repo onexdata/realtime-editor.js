@@ -8,10 +8,21 @@ const wss = new WebSocketServer({ port: 1234 })
 // Store document instances and their awareness data
 const documentSessions = new Map()
 
+// Store mapping from socket to actual document name
+const socketToDocName = new Map()
+
 // Enhanced Yjs server with awareness tracking
 const yjsServer = createYjsServer({
   createDoc: (docName) => {
-    console.log(`\n🆕 Creating new document: "${docName}"`)
+    console.log(`\n🆕 createDoc called with docName: "${docName}" (type: ${typeof docName})`)
+    
+    // Handle undefined or empty docName - we'll fix this with socket mapping
+    if (!docName || docName === 'undefined') {
+      console.log(`⚠️  Invalid docName received, will use socket mapping`)
+      docName = 'temp-doc'
+    }
+    
+    console.log(`🆕 Creating new document: "${docName}"`)
     
     const doc = new Y.Doc()
     const awareness = new Map() // Track awareness data for this document
@@ -26,9 +37,18 @@ const yjsServer = createYjsServer({
     
     // Listen for document updates
     doc.on('update', (update, origin, doc) => {
-      const session = documentSessions.get(docName)
+      // Find the real document name from socket mapping
+      let realDocName = docName
+      for (const [socket, mappedName] of socketToDocName.entries()) {
+        if (socket.readyState === 1) { // WebSocket.OPEN
+          realDocName = mappedName
+          break
+        }
+      }
+      
+      const session = documentSessions.get(realDocName)
       if (session) {
-        logDocumentActivity(docName, 'update', { origin, updateSize: update.length })
+        logDocumentActivity(realDocName, 'update', { origin, updateSize: update.length })
       }
     })
     
@@ -47,12 +67,64 @@ wss.on('connection', (socket, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`)
   const docName = url.pathname.slice(1) || 'default-doc'
   
-  console.log(`\n🔗 Client connected to document: "${docName}"`)
+  // Debug logging
+  console.log(`\n🔗 Client connection attempt:`)
+  console.log(`   Raw URL: ${request.url}`)
+  console.log(`   Parsed pathname: "${url.pathname}"`)
+  console.log(`   Extracted docName: "${docName}"`)
+  console.log(`   Host: ${request.headers.host}`)
   
-  // Track connection info
+  // Track connection info and mapping
   socket.docName = docName
   socket.clientId = generateClientId()
   socket.connectedAt = new Date().toISOString()
+  socketToDocName.set(socket, docName)
+  
+  // Add user to session immediately upon connection
+  const session = documentSessions.get(docName)
+  if (session) {
+    // Track this connection
+    session.users.set(socket.clientId, {
+      name: `User ${Math.floor(Math.random() * 1000)}`,
+      color: `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`,
+      id: socket.clientId,
+      connectedAt: socket.connectedAt
+    })
+    console.log(`👤 User added to "${docName}" - Total users: ${session.users.size}`)
+  }
+  
+  // Ensure document session exists
+  if (!documentSessions.has(docName)) {
+    console.log(`🆕 Creating document session for: "${docName}"`)
+    const doc = new Y.Doc()
+    const newSession = {
+      doc,
+      awareness: new Map(),
+      users: new Map(),
+      createdAt: new Date().toISOString()
+    }
+    documentSessions.set(docName, newSession)
+    
+    // Add this user to the new session
+    newSession.users.set(socket.clientId, {
+      name: `User ${Math.floor(Math.random() * 1000)}`,
+      color: `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`,
+      id: socket.clientId,
+      connectedAt: socket.connectedAt
+    })
+    console.log(`👤 User added to new document "${docName}" - Total users: ${newSession.users.size}`)
+    
+    // Listen for document updates with correct name
+    doc.on('update', (update, origin, doc) => {
+      logDocumentActivity(docName, 'update', { origin, updateSize: update.length })
+    })
+    
+    // Listen for destroyed documents
+    doc.on('destroy', () => {
+      console.log(`🗑️  Document "${docName}" destroyed`)
+      documentSessions.delete(docName)
+    })
+  }
   
   // Handle awareness updates from clients
   socket.on('message', (data) => {
@@ -79,8 +151,13 @@ wss.on('connection', (socket, request) => {
     console.log(`❌ Connection error for "${docName}": ${error.message}`)
   })
   
-  // Wire up the standard Yjs WebSocket handling
-  yjsServer.handleConnection(socket, request)
+  // Wire up the standard Yjs WebSocket handling with correct document name
+  // Create a modified request object with the document name in the URL
+  const modifiedRequest = {
+    ...request,
+    url: `/${docName}`
+  }
+  yjsServer.handleConnection(socket, modifiedRequest)
 })
 
 function handleAwarenessUpdate(docName, clientId, awarenessData) {
