@@ -128,7 +128,7 @@ async function initializeEditor() {
         }
       }
     },
-    onChange: debounce(handleEditorChange, 300),
+    onChange: handleEditorChange,
     placeholder: 'Start collaborating with rich text...'
   })
   
@@ -252,49 +252,61 @@ function handleBlockFocus(event) {
 function updateBlockIndicators() {
   if (!editorRef.value) return
   
-  // Clear existing indicators
-  const existingIndicators = editorRef.value.querySelectorAll('.block-user-indicator')
-  existingIndicators.forEach(indicator => indicator.remove())
+  const blocks = editorRef.value.querySelectorAll('.ce-block')
   
-  // Add new indicators
+  // Track which blocks currently have indicators
+  const activeBlockIds = new Set(Object.keys(activeBlocks.value).map(id => parseInt(id)))
+  
+  // Remove indicators for blocks that are no longer active
+  blocks.forEach((blockElement, index) => {
+    const existingIndicator = blockElement.querySelector('.block-user-indicator')
+    if (existingIndicator && !activeBlockIds.has(index)) {
+      existingIndicator.remove()
+    }
+  })
+  
+  // Update or create indicators for active blocks
   Object.entries(activeBlocks.value).forEach(([blockId, usersArray]) => {
     const blockIndex = parseInt(blockId)
-    const blocks = editorRef.value.querySelectorAll('.ce-block')
     const blockElement = blocks[blockIndex]
     
-    if (blockElement && usersArray.length > 0) {
-      const indicator = document.createElement('div')
+    if (!blockElement || usersArray.length === 0) return
+    
+    let indicator = blockElement.querySelector('.block-user-indicator')
+    
+    // Create indicator if it doesn't exist
+    if (!indicator) {
+      indicator = document.createElement('div')
       indicator.className = 'block-user-indicator'
-      
-      // Handle multiple users
-      if (usersArray.length === 1) {
-        // Single user - use their color
-        indicator.style.backgroundColor = usersArray[0].user.color
-        indicator.title = `${usersArray[0].user.name} is editing this block`
-      } else {
-        // Multiple users - create gradient and list all names
-        const colors = usersArray.map(userData => userData.user.color)
-        const names = usersArray.map(userData => userData.user.name)
-        
-        if (colors.length === 2) {
-          indicator.style.background = `linear-gradient(45deg, ${colors[0]} 50%, ${colors[1]} 50%)`
-        } else {
-          // For 3+ users, create a multi-stop gradient
-          const stops = colors.map((color, index) => {
-            const percentage = (index / colors.length) * 100
-            const nextPercentage = ((index + 1) / colors.length) * 100
-            return `${color} ${percentage}%, ${color} ${nextPercentage}%`
-          }).join(', ')
-          indicator.style.background = `linear-gradient(45deg, ${stops})`
-        }
-        
-        indicator.title = `Multiple users editing: ${names.join(', ')}`
-        indicator.classList.add('multiple-users')
-      }
-      
-      // Position the indicator
       blockElement.style.position = 'relative'
       blockElement.appendChild(indicator)
+    }
+    
+    // Update indicator styling and content
+    if (usersArray.length === 1) {
+      // Single user - use their color
+      indicator.style.background = usersArray[0].user.color
+      indicator.title = `${usersArray[0].user.name} is editing this block`
+      indicator.classList.remove('multiple-users')
+    } else {
+      // Multiple users - create gradient and list all names
+      const colors = usersArray.map(userData => userData.user.color)
+      const names = usersArray.map(userData => userData.user.name)
+      
+      if (colors.length === 2) {
+        indicator.style.background = `linear-gradient(45deg, ${colors[0]} 50%, ${colors[1]} 50%)`
+      } else {
+        // For 3+ users, create a multi-stop gradient
+        const stops = colors.map((color, index) => {
+          const percentage = (index / colors.length) * 100
+          const nextPercentage = ((index + 1) / colors.length) * 100
+          return `${color} ${percentage}%, ${color} ${nextPercentage}%`
+        }).join(', ')
+        indicator.style.background = `linear-gradient(45deg, ${stops})`
+      }
+      
+      indicator.title = `Multiple users editing: ${names.join(', ')}`
+      indicator.classList.add('multiple-users')
     }
   })
 }
