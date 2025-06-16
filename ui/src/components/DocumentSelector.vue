@@ -74,8 +74,11 @@ const documentId = ref('')
 
 function selectEditor(type) {
   selectedEditor.value = type
-  if (!documentId.value) {
-    generateNewDocumentId()
+  // Set default collaborative document IDs
+  if (type === 'plain') {
+    documentId.value = 'plain-text-document'
+  } else if (type === 'rich') {
+    documentId.value = 'rich-text-document'
   }
 }
 
