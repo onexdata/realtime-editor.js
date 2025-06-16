@@ -1,0 +1,20 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@y/websocket-server": "^0.1.1",
+    "express": "^5.1.0",
+    "ws": "^8.18.2",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.27",
+    "yjs-server": "^0.2.3"
+  }
+}
