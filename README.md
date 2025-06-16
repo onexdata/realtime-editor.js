@@ -2,6 +2,8 @@
 
 A real-time collaborative text editor built with Vue.js 3 and Yjs, featuring both plain text and rich text editing capabilities with live user awareness and cursor tracking.
 
+<a href="https://us05web.zoom.us/clips/embed/QISuCYDRSam_ibkrzqi1-Q">View a quick demo video</a>
+
 ## Features
 
 ### ✨ Core Features
