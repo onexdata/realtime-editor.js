@@ -17,6 +17,27 @@
     <div class="editor-container">
       <div ref="editorRef" class="editor-js-container"></div>
       
+      <!-- Remote cursors overlay -->
+      <div class="cursors-overlay">
+        <div
+          v-for="(cursor, clientId) in remoteCursors"
+          :key="clientId"
+          class="remote-cursor"
+          :style="{
+            left: cursor.x + 'px',
+            top: cursor.y + 'px',
+            borderColor: cursor.color
+          }"
+        >
+          <div 
+            class="cursor-label"
+            :style="{ backgroundColor: cursor.color }"
+          >
+            {{ cursor.name }}
+          </div>
+        </div>
+      </div>
+      
       <!-- User typing indicators -->
       <div class="typing-indicators">
         <div
@@ -61,11 +82,13 @@ const editorRef = ref(null)
 const activeUsers = ref([])
 const typingUsers = ref([])
 const activeBlocks = ref({}) // Track which users are editing which blocks
+const remoteCursors = ref({}) // Track remote user cursor positions
 const editor = ref(null)
 const currentBlockId = ref(null)
 
 // Debounce timer for typing indicators
 let typingTimeout = null
+let cursorUpdateTimeout = null
 
 // Origin tag for our own changes
 const ORIGIN = Symbol('local-origin')
@@ -90,6 +113,7 @@ onMounted(async () => {
     updateActiveUsers()
     updateTypingUsers()
     updateActiveBlocks()
+    updateRemoteCursors()
   })
   
   // Initial updates
@@ -155,6 +179,9 @@ async function handleEditorChange() {
     typingTimeout = setTimeout(() => {
       awareness.setLocalStateField('isTyping', false)
     }, 1000)
+    
+    // Update cursor position after content change
+    updateCursorPosition()
     
   } catch (error) {
     console.warn('Failed to save editor content:', error)
@@ -412,6 +439,9 @@ async function restoreCursorPosition(savedState, newBlocks) {
             setTextOffset(contentElement, textOffset)
           }
         }
+        
+        // Update cursor position in awareness after restoration
+        updateCursorPosition()
       }
     }
   } catch (error) {
@@ -429,6 +459,87 @@ async function restoreCursorPosition(savedState, newBlocks) {
       }
     } catch (fallbackError) {
       console.warn('Fallback cursor restoration also failed:', fallbackError)
+    }
+  }
+}
+
+function updateCursorPosition() {
+  // Debounce cursor position updates
+  clearTimeout(cursorUpdateTimeout)
+  cursorUpdateTimeout = setTimeout(() => {
+    try {
+      const cursorData = getCurrentCursorPosition()
+      if (cursorData) {
+        awareness.setLocalStateField('cursor', cursorData)
+      }
+    } catch (error) {
+      console.warn('Failed to update cursor position:', error)
+    }
+  }, 50) // 50ms debounce
+}
+
+function getCurrentCursorPosition() {
+  const focusedElement = document.activeElement
+  const blockElement = focusedElement?.closest('.ce-block')
+  
+  if (!blockElement) return null
+  
+  const blocks = editorRef.value?.querySelectorAll('.ce-block')
+  const blockIndex = blocks ? Array.from(blocks).indexOf(blockElement) : -1
+  
+  if (blockIndex < 0) return null
+  
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+  
+  const range = selection.getRangeAt(0)
+  const contentElement = blockElement.querySelector('[contenteditable="true"]')
+  
+  if (!contentElement || !contentElement.contains(range.startContainer)) return null
+  
+  // Calculate text offset
+  const textOffset = getTextOffset(contentElement, range.startContainer, range.startOffset)
+  
+  // Calculate visual position
+  const { x, y } = calculateCursorVisualPosition(blockElement, contentElement, range)
+  
+  return {
+    blockIndex,
+    textOffset,
+    x,
+    y,
+    timestamp: Date.now()
+  }
+}
+
+function calculateCursorVisualPosition(blockElement, contentElement, range) {
+  try {
+    // Create a temporary range to get cursor position
+    const tempRange = range.cloneRange()
+    tempRange.collapse(true)
+    
+    // Get the bounding rect of the cursor position
+    const rects = tempRange.getClientRects()
+    const rect = rects[0] || tempRange.getBoundingClientRect()
+    
+    // Get editor container position
+    const editorRect = editorRef.value.getBoundingClientRect()
+    
+    // Calculate relative position within editor
+    const x = rect.left - editorRect.left + 1 // Small offset for visibility
+    const y = rect.top - editorRect.top
+    
+    return { x, y }
+  } catch (error) {
+    console.warn('Failed to calculate cursor visual position:', error)
+    
+    // Fallback to block-based positioning
+    const blockRect = blockElement.getBoundingClientRect()
+    const editorRect = editorRef.value.getBoundingClientRect()
+    
+    return {
+      x: blockRect.left - editorRect.left + 10,
+      y: blockRect.top - editorRect.top + 10
     }
   }
 }
@@ -471,6 +582,28 @@ function updateActiveBlocks() {
   updateBlockIndicators()
 }
 
+function updateRemoteCursors() {
+  const cursors = {}
+  awareness.getStates().forEach((state, clientId) => {
+    if (state.user && state.cursor && clientId !== awareness.clientID) {
+      // Only show cursors that are recent (within last 10 seconds)
+      const isRecent = Date.now() - (state.cursor.timestamp || 0) < 10000
+      
+      if (isRecent) {
+        cursors[clientId] = {
+          name: state.user.name,
+          color: state.user.color,
+          x: state.cursor.x,
+          y: state.cursor.y,
+          blockIndex: state.cursor.blockIndex,
+          textOffset: state.cursor.textOffset
+        }
+      }
+    }
+  })
+  remoteCursors.value = cursors
+}
+
 function setupBlockTracking() {
   if (!editorRef.value) return
   
@@ -480,6 +613,11 @@ function setupBlockTracking() {
   editorContainer.addEventListener('click', handleBlockFocus)
   editorContainer.addEventListener('keyup', handleBlockFocus)
   editorContainer.addEventListener('focus', handleBlockFocus, true)
+  
+  // Add cursor movement listeners
+  editorContainer.addEventListener('keyup', updateCursorPosition)
+  editorContainer.addEventListener('mouseup', updateCursorPosition)
+  editorContainer.addEventListener('selectionchange', updateCursorPosition)
 }
 
 function handleBlockFocus(event) {
@@ -494,22 +632,11 @@ function handleBlockFocus(event) {
   if (blockIndex !== -1) {
     currentBlockId.value = blockIndex
     
-    // Get detailed cursor position if available
-    try {
-      const currentRange = editor.value?.caret?.getCurrentRange()
-      const cursorData = {
-        blockIndex,
-        offset: currentRange?.offset || 0,
-        hasSelection: currentRange ? (currentRange.startOffset !== currentRange.endOffset) : false
-      }
-      
-      // Update awareness with detailed cursor position
-      awareness.setLocalStateField('activeBlockId', blockIndex)
-      awareness.setLocalStateField('cursorPosition', cursorData)
-    } catch (error) {
-      // Fallback to just block tracking
-      awareness.setLocalStateField('activeBlockId', blockIndex)
-    }
+    // Update awareness with detailed cursor position
+    awareness.setLocalStateField('activeBlockId', blockIndex)
+    
+    // Update cursor position
+    updateCursorPosition()
   }
 }
 
@@ -592,6 +719,7 @@ onBeforeUnmount(() => {
     editor.value.destroy()
   }
   clearTimeout(typingTimeout)
+  clearTimeout(cursorUpdateTimeout)
   provider.disconnect()
   ydoc.destroy()
 })
@@ -651,6 +779,40 @@ onBeforeUnmount(() => {
   border-color: #45B7D1;
 }
 
+.cursors-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.remote-cursor {
+  position: absolute;
+  width: 2px;
+  height: 20px;
+  background-color: currentColor;
+  border-left: 2px solid;
+  animation: cursorBlink 1s infinite;
+  z-index: 101;
+}
+
+.cursor-label {
+  position: absolute;
+  top: -25px;
+  left: -5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  white-space: nowrap;
+  text-shadow: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
 .typing-indicators {
   margin-top: 0.5rem;
   min-height: 20px;
@@ -661,6 +823,11 @@ onBeforeUnmount(() => {
   font-style: italic;
   opacity: 0.8;
   animation: pulse 1.5s infinite;
+}
+
+@keyframes cursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
 }
 
 @keyframes pulse {
