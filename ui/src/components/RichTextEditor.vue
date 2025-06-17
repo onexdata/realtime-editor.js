@@ -202,8 +202,6 @@ async function updateEditorFromYjs() {
 
 async function saveCursorPosition() {
   try {
-    // Editor.js doesn't expose detailed cursor position API reliably
-    // For now, we'll track the currently focused block
     const focusedElement = document.activeElement
     const blockElement = focusedElement?.closest('.ce-block')
     
@@ -212,14 +210,99 @@ async function saveCursorPosition() {
     const blocks = editorRef.value?.querySelectorAll('.ce-block')
     const blockIndex = blocks ? Array.from(blocks).indexOf(blockElement) : -1
     
+    if (blockIndex < 0) return null
+    
+    // Try to get the actual cursor position within the contenteditable element
+    let textOffset = 0
+    let hasSelection = false
+    let selectionStart = 0
+    let selectionEnd = 0
+    
+    const selection = window.getSelection()
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0)
+      const contentElement = blockElement.querySelector('[contenteditable="true"]')
+      
+      if (contentElement && contentElement.contains(range.startContainer)) {
+        // Calculate text offset from start of content
+        textOffset = getTextOffset(contentElement, range.startContainer, range.startOffset)
+        
+        // Check if there's a selection
+        if (!range.collapsed) {
+          hasSelection = true
+          selectionStart = textOffset
+          selectionEnd = getTextOffset(contentElement, range.endContainer, range.endOffset)
+        }
+      }
+    }
+    
     return {
-      blockIndex: blockIndex >= 0 ? blockIndex : 0,
+      blockIndex,
+      textOffset,
+      hasSelection,
+      selectionStart,
+      selectionEnd,
       hasFocus: true
     }
   } catch (error) {
     console.warn('Failed to save cursor position:', error)
     return null
   }
+}
+
+function getTextOffset(root, node, offset) {
+  let textOffset = 0
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  )
+  
+  let currentNode
+  while (currentNode = walker.nextNode()) {
+    if (currentNode === node) {
+      return textOffset + offset
+    }
+    textOffset += currentNode.textContent.length
+  }
+  
+  return textOffset
+}
+
+function setTextOffset(element, offset) {
+  const walker = document.createTreeWalker(
+    element,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  )
+  
+  let currentOffset = 0
+  let currentNode
+  
+  while (currentNode = walker.nextNode()) {
+    const nodeLength = currentNode.textContent.length
+    if (currentOffset + nodeLength >= offset) {
+      const range = document.createRange()
+      const selection = window.getSelection()
+      range.setStart(currentNode, offset - currentOffset)
+      range.collapse(true)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      return true
+    }
+    currentOffset += nodeLength
+  }
+  
+  // Fallback: place at end
+  const range = document.createRange()
+  const selection = window.getSelection()
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return false
 }
 
 async function applySurgicalUpdates(currentBlocks, newBlocks) {
@@ -260,7 +343,7 @@ async function restoreCursorPosition(savedState, newBlocks) {
   if (!savedState || !newBlocks) return
   
   try {
-    const { blockIndex, hasFocus } = savedState
+    const { blockIndex, textOffset, hasSelection, selectionStart, selectionEnd, hasFocus } = savedState
     
     if (!hasFocus) return
     
@@ -282,26 +365,71 @@ async function restoreCursorPosition(savedState, newBlocks) {
     
     const targetBlock = blocks[targetBlockIndex]
     if (targetBlock) {
-      // Find a focusable element within the block
-      const focusableElement = targetBlock.querySelector('[contenteditable="true"], input, textarea') ||
-                              targetBlock.querySelector('.ce-paragraph, .ce-header, .ce-list')
+      // Find the contenteditable element within the block
+      const contentElement = targetBlock.querySelector('[contenteditable="true"]')
       
-      if (focusableElement) {
-        focusableElement.focus()
+      if (contentElement) {
+        contentElement.focus()
         
-        // Place cursor at the end of the content
-        if (focusableElement.contentEditable === 'true') {
-          const range = document.createRange()
-          const selection = window.getSelection()
-          range.selectNodeContents(focusableElement)
-          range.collapse(false) // Collapse to end
-          selection.removeAllRanges()
-          selection.addRange(range)
+        // Restore precise cursor position
+        if (hasSelection && selectionStart !== selectionEnd) {
+          // Restore selection
+          const startSet = setTextOffset(contentElement, selectionStart)
+          if (startSet) {
+            const selection = window.getSelection()
+            const range = selection.getRangeAt(0)
+            const endNode = range.startContainer
+            const endOffset = range.startOffset
+            
+            // Extend selection to end position
+            const walker = document.createTreeWalker(
+              contentElement,
+              NodeFilter.SHOW_TEXT,
+              null,
+              false
+            )
+            
+            let currentOffset = selectionStart
+            let currentNode = endNode
+            
+            // Find the end position
+            while (currentNode && currentOffset < selectionEnd) {
+              const remaining = selectionEnd - currentOffset
+              if (currentNode.textContent.length >= remaining) {
+                range.setEnd(currentNode, remaining)
+                break
+              }
+              currentOffset += currentNode.textContent.length
+              currentNode = walker.nextNode()
+            }
+            
+            selection.removeAllRanges()
+            selection.addRange(range)
+          }
+        } else {
+          // Restore single cursor position
+          if (textOffset !== undefined) {
+            setTextOffset(contentElement, textOffset)
+          }
         }
       }
     }
   } catch (error) {
     console.warn('Failed to restore cursor position:', error)
+    
+    // Fallback to simple focus
+    try {
+      const blocks = editorRef.value?.querySelectorAll('.ce-block')
+      if (blocks && savedState.blockIndex < blocks.length) {
+        const targetBlock = blocks[savedState.blockIndex]
+        const contentElement = targetBlock?.querySelector('[contenteditable="true"]')
+        if (contentElement) {
+          contentElement.focus()
+        }
+      }
+    } catch (fallbackError) {
+      console.warn('Fallback cursor restoration also failed:', fallbackError)
+    }
   }
 }
 
