@@ -165,21 +165,143 @@ async function updateEditorFromYjs() {
   if (!editor.value) return
   
   try {
-    const blocks = ymap.get('blocks')
+    const newBlocks = ymap.get('blocks')
     const time = ymap.get('time')
     const version = ymap.get('version')
     
-    if (blocks && Array.isArray(blocks)) {
-      const editorData = {
-        blocks,
-        time: time || Date.now(),
-        version: version || '2.28.0'
-      }
-      
-      await editor.value.render(editorData)
-    }
+    if (!newBlocks || !Array.isArray(newBlocks)) return
+    
+    // Save current cursor position before making changes
+    const savedCursorState = await saveCursorPosition()
+    
+    // Get current blocks from editor
+    const currentData = await editor.value.save()
+    const currentBlocks = currentData.blocks || []
+    
+    // Compare and apply surgical updates
+    await applySurgicalUpdates(currentBlocks, newBlocks)
+    
+    // Restore cursor position
+    await restoreCursorPosition(savedCursorState, newBlocks)
+    
   } catch (error) {
     console.warn('Failed to update editor from Yjs:', error)
+    // Fallback to full render if surgical update fails
+    try {
+      const editorData = {
+        blocks: ymap.get('blocks'),
+        time: ymap.get('time') || Date.now(),
+        version: ymap.get('version') || '2.28.0'
+      }
+      await editor.value.render(editorData)
+    } catch (fallbackError) {
+      console.error('Fallback render also failed:', fallbackError)
+    }
+  }
+}
+
+async function saveCursorPosition() {
+  try {
+    // Editor.js doesn't expose detailed cursor position API reliably
+    // For now, we'll track the currently focused block
+    const focusedElement = document.activeElement
+    const blockElement = focusedElement?.closest('.ce-block')
+    
+    if (!blockElement) return null
+    
+    const blocks = editorRef.value?.querySelectorAll('.ce-block')
+    const blockIndex = blocks ? Array.from(blocks).indexOf(blockElement) : -1
+    
+    return {
+      blockIndex: blockIndex >= 0 ? blockIndex : 0,
+      hasFocus: true
+    }
+  } catch (error) {
+    console.warn('Failed to save cursor position:', error)
+    return null
+  }
+}
+
+async function applySurgicalUpdates(currentBlocks, newBlocks) {
+  // Check if we need to update at all
+  if (blocksEqual(currentBlocks, newBlocks)) {
+    return // No changes needed
+  }
+  
+  // For now, use render but preserve focus more intelligently
+  // This avoids the complex surgical approach that uses non-existent APIs
+  const editorData = {
+    blocks: newBlocks,
+    time: ymap.get('time') || Date.now(),
+    version: ymap.get('version') || '2.28.0'
+  }
+  
+  try {
+    await editor.value.render(editorData)
+  } catch (error) {
+    console.warn('Failed to render editor data:', error)
+  }
+}
+
+function blocksEqual(currentBlocks, newBlocks) {
+  if (!Array.isArray(currentBlocks) || !Array.isArray(newBlocks)) {
+    return false
+  }
+  
+  if (currentBlocks.length !== newBlocks.length) {
+    return false
+  }
+  
+  // Deep compare the entire blocks arrays
+  return JSON.stringify(currentBlocks) === JSON.stringify(newBlocks)
+}
+
+async function restoreCursorPosition(savedState, newBlocks) {
+  if (!savedState || !newBlocks) return
+  
+  try {
+    const { blockIndex, hasFocus } = savedState
+    
+    if (!hasFocus) return
+    
+    // Wait for the editor to finish rendering
+    await nextTick()
+    
+    // Get the new blocks after rendering
+    const blocks = editorRef.value?.querySelectorAll('.ce-block')
+    if (!blocks || blocks.length === 0) return
+    
+    // Find the block to focus on
+    let targetBlockIndex = blockIndex
+    if (targetBlockIndex >= blocks.length) {
+      targetBlockIndex = blocks.length - 1
+    }
+    if (targetBlockIndex < 0) {
+      targetBlockIndex = 0
+    }
+    
+    const targetBlock = blocks[targetBlockIndex]
+    if (targetBlock) {
+      // Find a focusable element within the block
+      const focusableElement = targetBlock.querySelector('[contenteditable="true"], input, textarea') ||
+                              targetBlock.querySelector('.ce-paragraph, .ce-header, .ce-list')
+      
+      if (focusableElement) {
+        focusableElement.focus()
+        
+        // Place cursor at the end of the content
+        if (focusableElement.contentEditable === 'true') {
+          const range = document.createRange()
+          const selection = window.getSelection()
+          range.selectNodeContents(focusableElement)
+          range.collapse(false) // Collapse to end
+          selection.removeAllRanges()
+          selection.addRange(range)
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to restore cursor position:', error)
   }
 }
 
@@ -241,11 +363,25 @@ function handleBlockFocus(event) {
   const blocks = editorRef.value.querySelectorAll('.ce-block')
   const blockIndex = Array.from(blocks).indexOf(blockElement)
   
-  if (blockIndex !== -1 && blockIndex !== currentBlockId.value) {
+  if (blockIndex !== -1) {
     currentBlockId.value = blockIndex
     
-    // Update awareness with the active block
-    awareness.setLocalStateField('activeBlockId', blockIndex)
+    // Get detailed cursor position if available
+    try {
+      const currentRange = editor.value?.caret?.getCurrentRange()
+      const cursorData = {
+        blockIndex,
+        offset: currentRange?.offset || 0,
+        hasSelection: currentRange ? (currentRange.startOffset !== currentRange.endOffset) : false
+      }
+      
+      // Update awareness with detailed cursor position
+      awareness.setLocalStateField('activeBlockId', blockIndex)
+      awareness.setLocalStateField('cursorPosition', cursorData)
+    } catch (error) {
+      // Fallback to just block tracking
+      awareness.setLocalStateField('activeBlockId', blockIndex)
+    }
   }
 }
 
