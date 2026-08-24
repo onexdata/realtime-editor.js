@@ -1,5 +1,25 @@
 {
-  "dependencies": {
-    "@y/websocket-server": "^0.1.1"
+  "name": "realtime-editor",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Real-time collaborative plain-text and rich-text (Editor.js) editing with Yjs",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "ui"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,ui -c blue,magenta \"npm:dev --workspace=server\" \"npm:dev --workspace=ui\"",
+    "build": "npm run build --workspace=ui",
+    "start": "npm run start --workspace=server",
+    "preview": "npm run preview --workspace=ui",
+    "test": "npm test --workspace=ui"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

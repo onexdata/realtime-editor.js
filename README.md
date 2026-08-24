@@ -1,249 +1,126 @@
-# Realtime Collaborative Editor
+# Realtime Editor
 
-A real-time collaborative text editor built with Vue.js 3 and Yjs, featuring both plain text and rich text editing capabilities with live user awareness and cursor tracking.
+Real-time collaborative editing built on [Yjs](https://yjs.dev): a **plain-text editor** (CodeMirror 6) and a **rich-text block editor** ([Editor.js](https://editorjs.io)) that multiple people can edit at the same time, with live cursors, presence and typing indicators.
 
-<a href="https://us05web.zoom.us/clips/embed/QISuCYDRSam_ibkrzqi1-Q">View a quick demo video</a>
+- Plain text merges **character by character** — two people can type in the same sentence.
+- Rich text is shared **block by block** through a purpose-built Editor.js ⇄ Yjs binding — people editing different blocks never conflict.
+- Documents live on a small WebSocket server (the official `@y/websocket-server` backend) and can be persisted to disk with LevelDB.
+- Offline edits are kept locally and merged when the connection returns (Yjs CRDT).
 
-## Features
+## Quick start
 
-### ✨ Core Features
-- **Real-time Collaboration**: Multiple users can edit the same document simultaneously
-- **Dual Editor Modes**: Switch between plain text and rich text editing
-- **User Awareness**: See other users' cursors, selections, and typing indicators
-- **Document Sessions**: Create or join document sessions using unique IDs
-- **Persistent Documents**: Documents persist across sessions using Yjs CRDT technology
+Requires **Node.js 18+**.
 
-### 🎯 Rich Text Features
-- **EditorJS Integration**: Professional rich text editing with blocks
-- **Structured Content**: Support for headers, paragraphs, lists, and more
-- **Block-based Editing**: Modern content creation experience
+```bash
+git clone https://github.com/onexdata/realtime-editor.js.git
+cd realtime-editor.js
+npm install        # installs the server and the UI (npm workspaces)
+npm run dev        # starts the WebSocket server (:1234) and the Vite dev server (:5173)
+```
 
-### 👥 Collaboration Features
-- **Live Cursors**: See where other users are editing in real-time
-- **User Identification**: Each user gets a unique name and color
-- **Typing Indicators**: Visual feedback when users are actively typing
-- **Connection Status**: Enhanced server logging and user tracking
+Open <http://localhost:5173> in **two browser windows**, open the same document ID in both, and type.
 
-## Tech Stack
+> Tip: a document is also addressable by URL, e.g. `http://localhost:5173/?doc=team-notes&mode=rich`. The **Copy link** button in the editor produces one.
 
-### Frontend (UI)
-- **Vue.js 3** - Progressive JavaScript framework with Composition API
-- **Vite** - Fast build tool and development server
-- **Yjs** - Conflict-free Replicated Data Type (CRDT) for collaborative editing
-- **y-websocket** - WebSocket provider for Yjs
-- **EditorJS** - Block-styled rich text editor
-
-### Backend (Server)
-- **Node.js** - JavaScript runtime
-- **WebSocket (ws)** - Real-time bidirectional communication
-- **Yjs Server** - Document synchronization and persistence
-- **Express** - Web application framework (if needed for additional routes)
-
-## Project Structure
+## Project layout
 
 ```
 realtime-editor.js/
-├── ui/                          # Vue.js frontend application
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── DocumentSelector.vue    # Document selection interface
-│   │   │   ├── PlainTextEditor.vue     # Plain text collaborative editor
-│   │   │   └── RichTextEditor.vue      # Rich text collaborative editor
-│   │   ├── utils/
-│   │   │   └── userUtils.js            # User management utilities
-│   │   ├── App.vue                     # Main application component
-│   │   └── main.js                     # Application entry point
-│   ├── package.json
-│   └── vite.config.js
-├── server/                      # Node.js backend server
-│   ├── server.js               # WebSocket server with Yjs integration
-│   └── package.json
-└── package.json                # Root package configuration
+├── package.json              # npm workspaces root: dev / build / start / test
+├── server/
+│   ├── server.js             # Yjs WebSocket server + health endpoint + persistence
+│   └── test/server.test.mjs  # end-to-end server tests (node --test)
+└── ui/
+    ├── src/
+    │   ├── App.vue                      # document selection ⇄ editor, URL state
+    │   ├── components/
+    │   │   ├── DocumentSelector.vue     # pick editor type + document id
+    │   │   ├── PlainTextEditor.vue      # CodeMirror 6 + y-codemirror.next
+    │   │   ├── RichTextEditor.vue       # Editor.js + the Yjs binding below
+    │   │   └── PresenceBar.vue          # connection status, peers, your name
+    │   ├── composables/useCollab.js     # Y.Doc + y-websocket provider + awareness
+    │   └── lib/
+    │       ├── editorjs-binding.js      # Editor.js ⇄ Y.Array<Y.Map> block binding
+    │       ├── reconcile.js             # pure list-diff planner used by the binding
+    │       ├── config.js                # WebSocket URL + document id rules
+    │       └── user.js                  # stable per-browser identity (name, colour)
+    └── vite.config.js
 ```
 
-## Getting Started
+## Scripts (run from the repo root)
 
-### Prerequisites
-- **Node.js** (v16 or higher)
-- **npm** or **yarn**
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd realtime-editor.js
-   ```
-
-2. **Install root dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Install server dependencies**
-   ```bash
-   cd server
-   npm install
-   cd ..
-   ```
-
-4. **Install UI dependencies**
-   ```bash
-   cd ui
-   npm install
-   cd ..
-   ```
-
-### Running the Application
-
-1. **Start the WebSocket Server**
-   ```bash
-   cd server
-   node server.js
-   ```
-   
-   The server will start on `ws://localhost:1234` and display enhanced logging with user activity tracking.
-
-2. **Start the Vue.js Development Server**
-   ```bash
-   cd ui
-   npm run dev
-   ```
-   
-   The UI will be available at `http://localhost:5173` (or the port shown in your terminal).
-
-3. **Open Multiple Browser Tabs**
-   
-   To test collaboration, open the application in multiple browser tabs or different browsers and join the same document session.
-
-## Usage
-
-### Creating/Joining a Document Session
-
-1. **Enter a Document ID**: Use any alphanumeric string as your document identifier
-2. **Select Editor Type**: Choose between "Plain Text" or "Rich Text" editing
-3. **Start Editing**: Click "Start Editing" to join the collaborative session
-
-### Collaboration
-
-- **Multiple Users**: Share the same document ID with others to collaborate
-- **Real-time Updates**: See changes appear instantly as others type
-- **User Awareness**: Observe other users' cursors and selections
-- **Persistent Sessions**: Documents remain available as long as the server is running
-
-### Editor Features
-
-#### Plain Text Editor
-- Simple, fast text editing
-- Real-time synchronization
-- Cursor and selection tracking
-- Suitable for code, notes, or simple documents
-
-#### Rich Text Editor
-- Block-based content creation
-- Headers, paragraphs, and lists
-- Professional editing experience
-- Structured document creation
+| Command           | What it does                                                        |
+| ----------------- | ------------------------------------------------------------------- |
+| `npm run dev`     | Server with auto-reload **and** Vite dev server, side by side        |
+| `npm run build`   | Production build of the UI into `ui/dist/`                          |
+| `npm run preview` | Serve the production build locally                                   |
+| `npm start`       | Start only the WebSocket server (for production)                     |
+| `npm test`        | UI unit tests (Vitest); `npm test --workspace=server` runs the server's end-to-end tests |
 
 ## Configuration
 
-### Server Configuration
-The WebSocket server runs on port `1234` by default. To change this:
+### Server
 
-1. Edit `server/server.js`
-2. Modify the port in the WebSocketServer configuration:
-   ```javascript
-   const wss = new WebSocketServer({ port: YOUR_PORT })
-   ```
+All optional — set them in the environment (see `server/.env.example`).
 
-### UI Configuration
-The frontend is configured to connect to `ws://localhost:1234`. For production or different environments:
+| Variable       | Default   | Meaning                                                                                   |
+| -------------- | --------- | ----------------------------------------------------------------------------------------- |
+| `PORT`         | `1234`    | Port to listen on                                                                          |
+| `HOST`         | `0.0.0.0` | Interface to bind                                                                          |
+| `YPERSISTENCE` | *(unset)* | Directory for LevelDB persistence. When set, documents survive server restarts. When unset, documents live in memory for the lifetime of the process. |
+| `GC`           | `true`    | Set to `false` to disable Yjs garbage collection (keeps full history)                      |
 
-1. Update WebSocket connection URLs in the editor components
-2. Modify the Vite configuration if needed for deployment
+```bash
+YPERSISTENCE=./data PORT=8080 npm start
+```
 
-## Development
+`GET /health` returns JSON with document and connection counts — handy for load balancers and uptime checks.
 
-### Building for Production
+### UI
 
-1. **Build the UI**
-   ```bash
-   cd ui
-   npm run build
-   ```
+Create `ui/.env` (see `ui/.env.example`) to point the UI at a deployed server:
 
-2. **Preview Production Build**
-   ```bash
-   cd ui
-   npm run preview
-   ```
+```bash
+VITE_WS_URL=wss://collab.example.com
+```
 
-### Development Features
+Without it the UI connects to `ws://<current hostname>:1234`, which is right for local development.
 
-- **Hot Module Replacement**: Changes to Vue components update instantly
-- **Enhanced Logging**: Server provides detailed activity logs
-- **Error Handling**: Comprehensive error handling for WebSocket connections
-- **User Tracking**: Detailed user session management and awareness
+## Deploying
 
-## Architecture
+1. Build the UI: `npm run build` → static files in `ui/dist/`. Serve them from any static host or CDN.
+2. Run the server somewhere with Node 18+: `YPERSISTENCE=/var/lib/realtime-editor npm start` (put it behind a TLS-terminating proxy so clients can use `wss://`).
+3. Set `VITE_WS_URL` to the public WebSocket URL **before** building the UI.
 
-### Real-time Synchronization
-The application uses **Yjs** (Y.js), a CRDT implementation that enables:
-- **Conflict-free Merging**: Multiple users can edit simultaneously without conflicts
-- **Offline Support**: Changes can be made offline and synchronized when reconnected
-- **Undo/Redo**: Built-in operation history
-- **Binary Efficiency**: Optimized data transmission
+**Authentication** is intentionally not built in — anyone who knows a document id can open it. The place to add it is the `server.on('upgrade', …)` handler in `server/server.js`: check a cookie or token there and `socket.destroy()` to reject.
 
-### User Awareness System
-- **Client Identification**: Each connection gets a unique client ID
-- **User Metadata**: Names, colors, and connection timestamps
-- **Cursor Tracking**: Real-time cursor position and selection data
-- **Activity Monitoring**: Typing indicators and user presence
+## How the collaboration works
 
-### Document Management
-- **Session Isolation**: Each document ID creates an isolated collaboration space
-- **Memory Storage**: Documents persist in server memory during runtime
-- **Connection Mapping**: Robust mapping between WebSocket connections and documents
+### Plain text
 
-## Contributing
+`PlainTextEditor.vue` uses [`y-codemirror.next`](https://github.com/yjs/y-codemirror.next), the official CodeMirror 6 binding. The document is a `Y.Text`; every keystroke becomes a tiny CRDT operation, so concurrent edits anywhere in the text merge correctly. Remote carets and selections are rendered from Yjs awareness, and undo/redo (`Ctrl/⌘ Z`) is a `Y.UndoManager` that only reverts your own changes.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### Rich text (Editor.js)
+
+Editor.js has no official Yjs binding, so this project ships one (`ui/src/lib/editorjs-binding.js`). The shared structure is a `Y.Array` of `Y.Map`s, each mirroring an Editor.js block `{ id, type, data }` — the same ids Editor.js uses, so the same block has the same id on every client.
+
+- **Local → shared:** Editor.js's batched `onChange` reports which blocks changed; only those are serialised and written. Inserts, deletes and reorders are turned into a minimal op sequence by `reconcile.js`.
+- **Shared → local:** remote changes are applied surgically with the Editor.js Blocks API (`insert`/`update`/`delete`/`move`) — the document is never re-rendered wholesale, and the caret is restored if the block you are typing in was updated.
+- Both directions are **idempotent** and run through one queue, so a remote change that makes Editor.js fire `onChange` is recognised as already synced and does not echo.
+- Editor.js's auto-inserted empty paragraph is never shared until it has content, so new documents don't accumulate blank blocks.
+
+**Granularity is the block.** People editing different blocks never conflict. If two people edit the *same* block within the same instant, the last write wins for that block only. Character-level merging inside a block would need a Yjs-native editor (for that, use the plain-text mode, or a ProseMirror/TipTap-based editor with `y-prosemirror`).
+
+### Presence
+
+Yjs awareness carries each client's `{ user, typing, block }`. The presence bar shows who is connected and typing; the rich editor adds a badge next to the block each peer is editing; CodeMirror shows remote carets/selections. Your display name and colour are generated once per browser and stored in `localStorage` — click your name to change it.
+
+## Development notes
+
+- `@y/websocket-server` is pinned to **0.1.1**: later 0.1.x releases moved to the Yjs v14 pre-release and currently mix two incompatible Yjs cores, which breaks sync (`store.getClock is not a function`). Bump it only once the Yjs 14 stack is stable end-to-end.
+- In dev builds `window.__collab` exposes `{ ydoc, provider, awareness }` for poking at the live document from the browser console.
+- `ui/src/lib/reconcile.js` is pure and covered by Vitest (including randomised convergence tests); the server has end-to-end tests that spawn the real process and use the real y-websocket client.
 
 ## License
 
-This project is open source. Please check the license file for more details.
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Connection Failed**
-   - Ensure the WebSocket server is running on port 1234
-   - Check for firewall or antivirus blocking the connection
-
-2. **Changes Not Syncing**
-   - Verify all clients are connected to the same document ID
-   - Check browser console for WebSocket errors
-
-3. **Performance Issues**
-   - Large documents may experience slower synchronization
-   - Consider breaking large documents into smaller sections
-
-### Debug Mode
-The server provides extensive logging. Monitor the server console for:
-- Connection status
-- Document activity
-- User awareness updates
-- Error messages
-
-## Support
-
-For issues, questions, or contributions, please create an issue in the repository or contact the development team.
-
----
-
-**Happy Collaborative Editing!** 🎉
+[MIT](LICENSE)

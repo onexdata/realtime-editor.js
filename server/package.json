@@ -1,20 +1,26 @@
 {
-  "name": "server",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "@realtime-editor/server",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Yjs WebSocket server (official @y/websocket-server) with optional LevelDB persistence",
+  "license": "MIT",
   "type": "module",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "test": "node --test \"test/**/*.test.mjs\""
   },
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@y/websocket-server": "^0.1.1",
-    "express": "^5.1.0",
+    "@y/websocket-server": "0.1.1",
     "ws": "^8.18.2",
-    "y-websocket": "^3.0.0",
-    "yjs": "^13.6.27",
-    "yjs-server": "^0.2.3"
+    "y-leveldb": "^0.1.2",
+    "yjs": "^13.6.27"
+  },
+  "devDependencies": {
+    "y-websocket": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
