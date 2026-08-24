@@ -321,6 +321,24 @@ describe('Yjs → local (two connected editors)', () => {
     expect(b.api.snapshot()).toEqual(expected)
   })
 
+  it('patches text-only changes into the DOM without replacing the block element', () => {
+    const a = makeSide('a')
+    a.holder.innerHTML =
+      '<div class="ce-block" data-id="p1"><div contenteditable="true">old</div></div>'
+    const el = a.holder.querySelector('[contenteditable]')
+
+    expect(a.binding.tryPatchTextInPlace('p1', { text: 'old' }, { text: 'new' })).toBe(true)
+    expect(a.holder.querySelector('[contenteditable]')).toBe(el) // same node
+    expect(el.innerHTML).toBe('new')
+
+    // non-text field changed -> needs a full update
+    expect(
+      a.binding.tryPatchTextInPlace('p1', { text: 'a', level: 2 }, { text: 'a', level: 3 }),
+    ).toBe(false)
+    // no matching DOM -> needs a full update
+    expect(a.binding.tryPatchTextInPlace('nope', { text: 'a' }, { text: 'b' })).toBe(false)
+  })
+
   it('stops applying anything after destroy()', async () => {
     const a = makeSide('a')
     const b = makeSide('b')

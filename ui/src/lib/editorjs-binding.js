@@ -244,7 +244,13 @@ export class EditorJsBinding {
       } else {
         const current = await existing.save()
         if (current && dataEqual(current.data, b.data)) continue
-        await api.update(id, b.data)
+        // Text-only changes (the common case while someone types) are patched
+        // straight into the block's contenteditable. api.update() would tear
+        // down and rebuild the whole block DOM, which flickers visibly at the
+        // realtime sync rate.
+        if (!this.tryPatchTextInPlace(id, current?.data, b.data)) {
+          await api.update(id, b.data)
+        }
       }
       updatedIds.push(id)
     }
@@ -253,6 +259,31 @@ export class EditorJsBinding {
 
     if (caret && updatedIds.includes(caret.id)) restoreCaret(this.holder, caret)
     this.onAfterRemoteApply?.()
+  }
+
+  /**
+   * Apply a remote change directly to the block's contenteditable when only
+   * the `text` field changed. Editor.js's paragraph and header tools render
+   * `data.text` as the element's innerHTML and read it back on save, so the
+   * DOM *is* the data for them — patching it keeps the editor consistent
+   * while leaving the block's wrapper, toolbar and hover state untouched
+   * (no flicker). Returns false when a full update is required.
+   */
+  tryPatchTextInPlace(id, currentData, newData) {
+    if (!this.holder || !currentData || !newData) return false
+    if (typeof newData.text !== 'string') return false
+    // every field except `text` must be unchanged
+    const keys = new Set([...Object.keys(currentData), ...Object.keys(newData)])
+    for (const key of keys) {
+      if (key === 'text') continue
+      if (!dataEqual(currentData[key], newData[key])) return false
+    }
+    const blockEl = this.holder.querySelector(`.ce-block[data-id="${CSS.escape(id)}"]`)
+    const content = blockEl?.querySelector('[contenteditable="true"]')
+    // nested contenteditables mean a complex tool — let Editor.js handle it
+    if (!content || content.querySelector('[contenteditable]')) return false
+    if (content.innerHTML !== newData.text) content.innerHTML = newData.text
+    return true
   }
 }
 
