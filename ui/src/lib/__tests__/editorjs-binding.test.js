@@ -83,8 +83,9 @@ function makeSide(name) {
   const api = new MockBlocksAPI()
   const editor = { blocks: api }
   const holder = document.createElement('div')
+  document.body.appendChild(holder)
   const binding = new EditorJsBinding(editor, yarray, { holder })
-  return { name, ydoc, yarray, api, editor, binding }
+  return { name, ydoc, yarray, api, editor, binding, holder }
 }
 
 /** Relay updates between two docs, like a (synchronous) server would. */
@@ -147,6 +148,24 @@ describe('local → Yjs', () => {
     const before = Y.encodeStateVector(a.ydoc)
     await a.binding.handleLocalChange(a.editor, touch('p1')) // echo — no changes
     expect(Y.encodeStateVector(a.ydoc)).toEqual(before)
+  })
+
+  it('syncs typing via raw input events without waiting for onChange', async () => {
+    const a = makeSide('a')
+    a.api.addBlock('paragraph', { text: 'hi' }, 0, 'p1')
+    await a.binding.handleLocalChange(a.editor, touch('p1'))
+
+    // simulate a keystroke: the mock editor's data changes and the
+    // contenteditable inside the block emits a raw input event
+    a.api.setData('p1', { text: 'hi!' })
+    a.holder.innerHTML = '<div class="ce-block" data-id="p1"><div contenteditable="true">hi!</div></div>'
+    a.holder
+      .querySelector('[contenteditable]')
+      .dispatchEvent(new Event('input', { bubbles: true }))
+
+    // must land well before Editor.js's 400ms onChange debounce would fire
+    await new Promise((r) => setTimeout(r, 150))
+    expect(blocksFromYArray(a.yarray)[0].data).toEqual({ text: 'hi!' })
   })
 
   it('propagates deletes and reorders', async () => {

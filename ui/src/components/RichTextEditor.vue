@@ -109,14 +109,23 @@ async function initEditor() {
   ready.value = true
 
   document.addEventListener('selectionchange', onSelectionChange)
+  // The binding syncs typing from raw input events (faster than Editor.js's
+  // debounced onChange) — drive the typing indicator from the same signal.
+  holder.value.addEventListener('input', onLocalInput)
   resizeObserver = new ResizeObserver(scheduleBadgeLayout)
   resizeObserver.observe(holder.value)
   await nextTick()
   scheduleBadgeLayout()
 }
 
+function onLocalInput() {
+  markTyping()
+  scheduleBadgeLayout()
+}
+
 onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', onSelectionChange)
+  holder.value?.removeEventListener('input', onLocalInput)
   resizeObserver?.disconnect()
   binding?.destroy()
   if (editor?.destroy) editor.destroy()

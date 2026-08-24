@@ -18,6 +18,14 @@ import { planReconcile, dataEqual, isPlaceholderBlock } from './reconcile.js'
 
 export const BLOCKS_KEY = 'blocks'
 
+/**
+ * Editor.js batches its `onChange` behind a 400ms debounce that resets on
+ * every keystroke, so continuous typing would not sync until the writer
+ * pauses. The binding therefore also listens to raw `input` events and
+ * syncs the affected block this quickly:
+ */
+export const INPUT_SYNC_MS = 50
+
 /** Current document as Editor.js OutputData blocks. */
 export function blocksFromYArray(yarray) {
   return yarray.toJSON()
@@ -60,10 +68,37 @@ export class EditorJsBinding {
       this.enqueue(() => this.applyRemote())
     }
     yarray.observeDeep(this._observer)
+
+    // Realtime fast path (see INPUT_SYNC_MS above): push the block being
+    // typed in within ~50ms instead of waiting out Editor.js's onChange
+    // debounce. The batched onChange stays wired up as the authoritative
+    // safety net for structural changes that emit no input event.
+    this._inputPending = new Set()
+    this._inputTimer = null
+    this._onInput = (event) => {
+      const target = event.target
+      const el = target instanceof Element ? target : target?.parentElement
+      const id = el?.closest?.('.ce-block')?.dataset?.id
+      if (id) this.scheduleInputSync(id)
+    }
+    holder?.addEventListener('input', this._onInput, true)
+  }
+
+  scheduleInputSync(id) {
+    this._inputPending.add(id)
+    if (this._inputTimer) return
+    this._inputTimer = setTimeout(() => {
+      this._inputTimer = null
+      const touched = this._inputPending
+      this._inputPending = new Set()
+      this.enqueue(() => this.pushLocal(touched))
+    }, INPUT_SYNC_MS)
   }
 
   destroy() {
     this.destroyed = true
+    clearTimeout(this._inputTimer)
+    this.holder?.removeEventListener('input', this._onInput, true)
     this.yarray.unobserveDeep(this._observer)
   }
 
@@ -235,6 +270,13 @@ export function focusedBlockId(holder) {
 }
 
 function captureCaret(holder) {
+  if (!holder) return null
+  // Only meaningful while this editor actually has focus. Without this guard,
+  // restoring a *stale* selection after a remote update would call .focus()
+  // and steal focus from wherever the user is really working (another
+  // window, iframe, or input).
+  const doc = holder.ownerDocument
+  if (!doc.hasFocus() || !holder.contains(doc.activeElement)) return null
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0) return null
   const range = sel.getRangeAt(0)
