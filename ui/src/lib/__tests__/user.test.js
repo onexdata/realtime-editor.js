@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createRandomUser, loadUser, saveUser, generateDocumentId } from '../user.js'
+import { createRandomUser, loadUser, saveUser, userFromName, generateDocumentId } from '../user.js'
 
 function fakeStorage() {
   const store = new Map()
@@ -63,6 +63,20 @@ describe('loadUser / saveUser', () => {
     const u = loadUser()
     expect(u.name).toBeTruthy()
     expect(() => saveUser(u)).not.toThrow()
+  })
+})
+
+describe('userFromName', () => {
+  it('is deterministic: same name, same colours', () => {
+    expect(userFromName('Alice')).toEqual(userFromName('Alice'))
+  })
+
+  it('trims and caps the name, and always yields both colours', () => {
+    const u = userFromName('  Bob  ')
+    expect(u.name).toBe('Bob')
+    expect(u.color).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(u.colorLight).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(userFromName('x'.repeat(80)).name).toHaveLength(40)
   })
 })
 

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Realtime Editor — side-by-side demo</title>
+    <style>
+      :root {
+        --border: #dee2e6;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #e9ecf2;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 8px;
+        font-size: 13px;
+        color: #495057;
+      }
+      header code {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 1px 6px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 0 10px 10px;
+        min-height: 0;
+      }
+      .pane {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+      }
+      .pane h2 {
+        margin: 0;
+        padding: 7px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .pane h2 .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+      }
+      .pane:nth-child(1) h2 {
+        background: #1971c2;
+      }
+      .pane:nth-child(2) h2 {
+        background: #e8590c;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      Two independent clients, same document — synced live through the Yjs server. Document:
+      <code id="docLabel"></code>
+    </header>
+    <main>
+      <section class="pane">
+        <h2><span class="dot"></span>Alice's browser</h2>
+        <iframe id="alice" title="Alice"></iframe>
+      </section>
+      <section class="pane">
+        <h2><span class="dot"></span>Bob's browser</h2>
+        <iframe id="bob" title="Bob"></iframe>
+      </section>
+    </main>
+    <script>
+      // Local development helper: open ONE page that embeds two fully
+      // independent clients of the same document, e.g.
+      //   http://localhost:5173/side-by-side.html?doc=demo&mode=rich
+      const params = new URLSearchParams(location.search)
+      const doc = params.get('doc') || 'side-by-side-demo'
+      const mode = params.get('mode') === 'plain' ? 'plain' : 'rich'
+      document.getElementById('docLabel').textContent = doc
+      const url = (user) => `/?doc=${encodeURIComponent(doc)}&mode=${mode}&user=${user}`
+      document.getElementById('alice').src = url('Alice')
+      document.getElementById('bob').src = url('Bob')
+    </script>
+  </body>
+</html>

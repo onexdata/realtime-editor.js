@@ -2,7 +2,13 @@ import { ref, onBeforeUnmount, readonly } from 'vue'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import { getWsUrl } from '../lib/config.js'
-import { loadUser, saveUser } from '../lib/user.js'
+import { loadUser, saveUser, userFromName } from '../lib/user.js'
+
+/** `?user=Name` overrides the stored identity (not persisted) — handy for demos. */
+function initialUser() {
+  const name = new URLSearchParams(window.location.search).get('user')
+  return name?.trim() ? userFromName(name) : loadUser()
+}
 
 /**
  * Creates a Y.Doc + y-websocket provider for `docId` and exposes reactive
@@ -14,7 +20,7 @@ export function useCollab(docId) {
   const provider = new WebsocketProvider(getWsUrl(), docId, ydoc)
   const awareness = provider.awareness
 
-  const user = ref(loadUser())
+  const user = ref(initialUser())
   awareness.setLocalStateField('user', user.value)
 
   /** 'connecting' | 'connected' | 'disconnected' */

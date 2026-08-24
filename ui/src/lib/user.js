@@ -56,6 +56,19 @@ export function saveUser(user) {
   }
 }
 
+/**
+ * Deterministic identity for a given display name (same name → same colour).
+ * Used by the `?user=Name` URL override, e.g. for demos and multi-profile
+ * testing on one machine.
+ */
+export function userFromName(name) {
+  const trimmed = String(name).trim().slice(0, 40)
+  let hash = 0
+  for (let i = 0; i < trimmed.length; i++) hash = (hash * 31 + trimmed.charCodeAt(i)) >>> 0
+  const [color, colorLight] = PALETTE[hash % PALETTE.length]
+  return { name: trimmed, color, colorLight }
+}
+
 export function generateDocumentId() {
   const stamp = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 8)
