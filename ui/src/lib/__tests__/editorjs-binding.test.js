@@ -10,7 +10,13 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import * as Y from 'yjs'
-import { EditorJsBinding, BLOCKS_KEY, blocksFromYArray } from '../editorjs-binding.js'
+import {
+  EditorJsBinding,
+  BLOCKS_KEY,
+  blocksFromYArray,
+  flattenListItems,
+  sameListShape,
+} from '../editorjs-binding.js'
 
 let autoId = 0
 const nextId = (prefix = 'blk') => `${prefix}${++autoId}`
@@ -337,6 +343,56 @@ describe('Yjs → local (two connected editors)', () => {
     ).toBe(false)
     // no matching DOM -> needs a full update
     expect(a.binding.tryPatchTextInPlace('nope', { text: 'a' }, { text: 'b' })).toBe(false)
+  })
+
+  it('patches list item text in place when the tree shape is unchanged', () => {
+    const a = makeSide('a')
+    a.holder.innerHTML =
+      '<div class="ce-block" data-id="l1"><ul>' +
+      '<li><div class="cdx-list__item-content">one</div>' +
+      '<div class="cdx-list__item-children"><div class="cdx-list__item-content">one-a</div></div></li>' +
+      '<li><div class="cdx-list__item-content">two</div></li>' +
+      '</ul></div>'
+    const nodesBefore = [...a.holder.querySelectorAll('.cdx-list__item-content')]
+
+    const li = (content, children = [], meta = {}) => ({ content, meta, items: children })
+    const cur = { style: 'unordered', meta: {}, items: [li('one', [li('one-a')]), li('two')] }
+    const next = {
+      style: 'unordered',
+      meta: {},
+      items: [li('one!', [li('one-a!')]), li('two!')],
+    }
+
+    expect(a.binding.tryPatchListInPlace('l1', cur, next)).toBe(true)
+    const nodesAfter = [...a.holder.querySelectorAll('.cdx-list__item-content')]
+    expect(nodesAfter).toEqual(nodesBefore) // same DOM nodes
+    expect(nodesAfter.map((n) => n.innerHTML)).toEqual(['one!', 'one-a!', 'two!'])
+
+    // structural / meta changes require a full update
+    expect(
+      a.binding.tryPatchListInPlace('l1', cur, { ...cur, style: 'ordered' }),
+    ).toBe(false)
+    expect(
+      a.binding.tryPatchListInPlace('l1', cur, {
+        ...cur,
+        items: [li('one', [li('one-a')]), li('two', [], { checked: true })],
+      }),
+    ).toBe(false)
+    expect(
+      a.binding.tryPatchListInPlace('l1', cur, { ...cur, items: [li('only')] }),
+    ).toBe(false)
+  })
+
+  it('flattenListItems matches DOM document order; sameListShape compares shape+meta only', () => {
+    const li = (content, children = [], meta = {}) => ({ content, meta, items: children })
+    const tree = [li('a', [li('a1'), li('a2', [li('a2x')])]), li('b')]
+    expect(flattenListItems(tree).map((i) => i.content)).toEqual(['a', 'a1', 'a2', 'a2x', 'b'])
+
+    expect(sameListShape(tree, [li('A', [li('A1'), li('A2', [li('A2X')])]), li('B')])).toBe(true)
+    expect(sameListShape(tree, [li('a', [li('a1')]), li('b')])).toBe(false)
+    expect(
+      sameListShape([li('x', [], { checked: false })], [li('x', [], { checked: true })]),
+    ).toBe(false)
   })
 
   it('stops applying anything after destroy()', async () => {

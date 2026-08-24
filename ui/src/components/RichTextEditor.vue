@@ -43,7 +43,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import EditorJS from '@editorjs/editorjs'
 import Header from '@editorjs/header'
 import Paragraph from '@editorjs/paragraph'
-import List from '@editorjs/list'
+import List from '../lib/list-tool.js'
 import { useCollab } from '../composables/useCollab.js'
 import { EditorJsBinding, BLOCKS_KEY, blocksFromYArray, focusedBlockId } from '../lib/editorjs-binding.js'
 import PresenceBar from './PresenceBar.vue'
@@ -108,11 +108,17 @@ async function initEditor() {
   })
   ready.value = true
 
+  // Dev convenience: inspect the live editor from the browser console.
+  if (import.meta.env.DEV) window.__editor = editor
+
   document.addEventListener('selectionchange', onSelectionChange)
   // The binding syncs typing from raw input events (faster than Editor.js's
   // debounced onChange) — drive the typing indicator from the same signal.
   holder.value.addEventListener('input', onLocalInput)
-  resizeObserver = new ResizeObserver(scheduleBadgeLayout)
+  resizeObserver = new ResizeObserver(() => {
+    updateNarrowMode()
+    scheduleBadgeLayout()
+  })
   resizeObserver.observe(holder.value)
   await nextTick()
   scheduleBadgeLayout()
@@ -121,6 +127,27 @@ async function initEditor() {
 function onLocalInput() {
   markTyping()
   scheduleBadgeLayout()
+}
+
+/**
+ * Editor.js only ever *adds* its narrow-mode class (at initialisation) and
+ * never removes it, so growing the viewport leaves the +/⋮⋮ toolbar stuck in
+ * its mobile position until the next interaction. Keep the class in sync with
+ * the actual width ourselves and hide the stale toolbar when the mode flips.
+ */
+const NARROW_BREAKPOINT = 650
+function updateNarrowMode() {
+  const wrapper = holder.value?.querySelector('.codex-editor')
+  if (!wrapper) return
+  const shouldBeNarrow = holder.value.offsetWidth < NARROW_BREAKPOINT
+  if (wrapper.classList.contains('codex-editor--narrow') !== shouldBeNarrow) {
+    wrapper.classList.toggle('codex-editor--narrow', shouldBeNarrow)
+    try {
+      editor?.toolbar?.close()
+    } catch {
+      /* toolbar may not be ready yet */
+    }
+  }
 }
 
 onBeforeUnmount(() => {

@@ -248,7 +248,10 @@ export class EditorJsBinding {
         // straight into the block's contenteditable. api.update() would tear
         // down and rebuild the whole block DOM, which flickers visibly at the
         // realtime sync rate.
-        if (!this.tryPatchTextInPlace(id, current?.data, b.data)) {
+        if (
+          !this.tryPatchTextInPlace(id, current?.data, b.data) &&
+          !this.tryPatchListInPlace(id, current?.data, b.data)
+        ) {
           await api.update(id, b.data)
         }
       }
@@ -285,6 +288,56 @@ export class EditorJsBinding {
     if (content.innerHTML !== newData.text) content.innerHTML = newData.text
     return true
   }
+
+  /**
+   * Same idea for @editorjs/list blocks (unordered/ordered/checklist): when
+   * only item *contents* changed — same item tree shape, same metas (incl.
+   * checked state), same style — write each item's HTML into its
+   * `.cdx-list__item-content` element. The tool serialises from the DOM, so
+   * this keeps it consistent. Structural changes fall back to a full update.
+   */
+  tryPatchListInPlace(id, currentData, newData) {
+    if (!this.holder || !currentData || !newData) return false
+    if (!Array.isArray(currentData.items) || !Array.isArray(newData.items)) return false
+    const keys = new Set([...Object.keys(currentData), ...Object.keys(newData)])
+    for (const key of keys) {
+      if (key === 'items') continue
+      if (!dataEqual(currentData[key], newData[key])) return false
+    }
+    if (!sameListShape(currentData.items, newData.items)) return false
+
+    const blockEl = this.holder.querySelector(`.ce-block[data-id="${CSS.escape(id)}"]`)
+    if (!blockEl) return false
+    const nodes = blockEl.querySelectorAll('.cdx-list__item-content')
+    const flat = flattenListItems(newData.items)
+    if (nodes.length !== flat.length) return false
+    nodes.forEach((el, i) => {
+      const html = flat[i].content ?? ''
+      if (el.innerHTML !== html) el.innerHTML = html
+    })
+    return true
+  }
+}
+
+// ------------------------------------------------------------------ list utils
+
+/** Depth-first flattening, matching the DOM document order of item elements. */
+export function flattenListItems(items, out = []) {
+  for (const item of items ?? []) {
+    out.push(item)
+    flattenListItems(item.items, out)
+  }
+  return out
+}
+
+/** True when both trees have identical shape and metas — contents may differ. */
+export function sameListShape(a, b) {
+  if ((a?.length ?? 0) !== (b?.length ?? 0)) return false
+  for (let i = 0; i < (a?.length ?? 0); i++) {
+    if (!dataEqual(a[i].meta ?? {}, b[i].meta ?? {})) return false
+    if (!sameListShape(a[i].items ?? [], b[i].items ?? [])) return false
+  }
+  return true
 }
 
 // ------------------------------------------------------------------ caret utils
