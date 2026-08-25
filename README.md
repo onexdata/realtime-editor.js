@@ -7,6 +7,10 @@ Real-time collaborative editing built on [Yjs](https://yjs.dev): a **plain-text 
 - Documents live on a small WebSocket server (the official `@y/websocket-server` backend) and can be persisted to disk with LevelDB.
 - Offline edits are kept locally and merged when the connection returns (Yjs CRDT).
 
+https://github.com/user-attachments/assets/edde706a-b6a6-40cc-bf14-401e835fd00b
+
+*Demo recorded at 2× speed.*
+
 ## Quick start
 
 Requires **Node.js 18+**.
